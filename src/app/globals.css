@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/*
+ * Base app scale. Tailwind rem values use this font-size, and the header
+ * controls can override it to scale the entire app.
+ */
+html {
+  font-size: 100%;
+}
+
+:root {
+  --background: #0a0a0f;
+  --foreground: #f3f4f6;
+  --card-bg: rgba(20, 20, 28, 0.7);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --glass-bg: rgba(20, 20, 28, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --primary: #22d3ee;
+  --primary-hover: #06b6d4;
+  --accent: #f59e0b;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 15, 23, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Glassmorphism utility classes */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+}
+
+.glass-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+}
+
+/* Pulse animation for "live / upcoming" markers */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.pulse-dot {
+  animation: pulse-slow 2.4s infinite ease-in-out;
+}

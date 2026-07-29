@@ -1,0 +1,166 @@
+import type { TopicBoard } from "@/types/topics";
+
+export const redevelopments: TopicBoard[] = [
+  {
+    id: "rd-shinjuku-west",
+    domain: "redevelopment",
+    title: "新宿駅西口地区開発計画",
+    category: "駅前再開発",
+    status: "construction",
+    statusLabel: "工事中",
+    statusTone: "warning",
+    dateLabel: "2030年度 竣工予定",
+    location: "東京都新宿区",
+    region: "東京",
+    summary:
+      "駅・商業・オフィスを一体化する大規模更新。歩行者動線と広場空間の再編を追跡中。",
+    image:
+      "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "延床面積", value: "約28万㎡" },
+      { label: "最高高さ", value: "約260m" },
+      { label: "事業段階", value: "本体工事" },
+      { label: "次回確認", value: "2026年9月" },
+    ],
+    updates: [
+      { at: "7月22日", text: "地下接続部の工程を更新" },
+      { at: "6月30日", text: "駅前広場の仮設動線を切替" },
+    ],
+    tags: ["小田急", "駅直結", "高層複合"],
+  },
+  {
+    id: "rd-yaesu-east",
+    domain: "redevelopment",
+    title: "八重洲一丁目東地区再開発",
+    category: "複合開発",
+    status: "construction",
+    statusLabel: "工事中",
+    statusTone: "warning",
+    dateLabel: "2026年度 竣工予定",
+    location: "東京都中央区",
+    region: "東京",
+    summary:
+      "東京駅前の業務・商業・交流機能を更新。バスターミナル接続と地下歩行者ネットワークが焦点。",
+    image:
+      "https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "延床面積", value: "約22万㎡" },
+      { label: "最高高さ", value: "約250m" },
+      { label: "事業段階", value: "内外装工事" },
+      { label: "次回確認", value: "2026年8月" },
+    ],
+    updates: [
+      { at: "7月18日", text: "高層部の外装進捗を更新" },
+      { at: "7月3日", text: "地下通路の接続計画を反映" },
+    ],
+    tags: ["東京駅", "バスターミナル", "オフィス"],
+  },
+  {
+    id: "rd-takanawa",
+    domain: "redevelopment",
+    title: "高輪ゲートウェイシティ",
+    category: "都市拠点",
+    status: "phased-open",
+    statusLabel: "段階開業",
+    statusTone: "info",
+    dateLabel: "2025年から順次開業",
+    location: "東京都港区",
+    region: "東京",
+    summary:
+      "駅を中心とした国際交流拠点。街区ごとの開業状況と公共空間の整備をまとめて確認。",
+    image:
+      "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "区域面積", value: "約9.5ha" },
+      { label: "主要棟", value: "4棟" },
+      { label: "事業段階", value: "段階開業" },
+      { label: "次回確認", value: "2026年10月" },
+    ],
+    updates: [
+      { at: "7月15日", text: "文化施設の開業予定を更新" },
+      { at: "6月25日", text: "街区内回遊ルートを追加" },
+    ],
+    tags: ["JR東日本", "国際交流", "スマートシティ"],
+  },
+  {
+    id: "rd-shibuya-west",
+    domain: "redevelopment",
+    title: "渋谷二丁目西地区",
+    category: "複合開発",
+    status: "planning",
+    statusLabel: "計画中",
+    statusTone: "neutral",
+    dateLabel: "2029年度 竣工予定",
+    location: "東京都渋谷区",
+    region: "東京",
+    summary:
+      "オフィス・商業・ホテルを含む複合計画。都市計画手続きと工事着手時期を追跡。",
+    image:
+      "https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "延床面積", value: "約32万㎡" },
+      { label: "最高高さ", value: "約208m" },
+      { label: "事業段階", value: "実施設計" },
+      { label: "次回確認", value: "2026年11月" },
+    ],
+    updates: [
+      { at: "7月10日", text: "都市計画資料を更新" },
+      { at: "6月14日", text: "工区構成を整理" },
+    ],
+    tags: ["渋谷駅", "ホテル", "歩行者ネットワーク"],
+  },
+  {
+    id: "rd-umekita",
+    domain: "redevelopment",
+    title: "うめきた2期地区",
+    category: "都市公園",
+    status: "phased-open",
+    statusLabel: "段階開業",
+    statusTone: "info",
+    dateLabel: "2027年度 全体開業予定",
+    location: "大阪市北区",
+    region: "大阪",
+    summary:
+      "大規模都市公園を核にした複合開発。公園・商業・ホテルの段階開業を追跡中。",
+    image:
+      "https://images.unsplash.com/photo-1494522358652-f30e61a60313?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "区域面積", value: "約17ha" },
+      { label: "公園面積", value: "約4.5ha" },
+      { label: "事業段階", value: "段階開業" },
+      { label: "次回確認", value: "2026年9月" },
+    ],
+    updates: [
+      { at: "7月21日", text: "南街区の開業情報を追加" },
+      { at: "7月1日", text: "公園イベント予定を更新" },
+    ],
+    tags: ["大阪駅", "都市公園", "イノベーション"],
+  },
+  {
+    id: "rd-sakae",
+    domain: "redevelopment",
+    title: "栄地区まちづくり更新",
+    category: "中心市街地",
+    status: "planning",
+    statusLabel: "計画中",
+    statusTone: "neutral",
+    dateLabel: "2032年度 完了予定",
+    location: "名古屋市中区",
+    region: "愛知",
+    summary:
+      "複数街区をまたぐ段階的な都市更新。広場・交通結節・商業機能の計画変更を確認。",
+    image:
+      "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "対象街区", value: "5街区" },
+      { label: "計画期間", value: "約7年" },
+      { label: "事業段階", value: "基本計画" },
+      { label: "次回確認", value: "2027年1月" },
+    ],
+    updates: [
+      { at: "7月8日", text: "事業者協議の状況を更新" },
+      { at: "6月12日", text: "交通動線案を追加" },
+    ],
+    tags: ["栄", "広場整備", "回遊性"],
+  },
+];
