@@ -1,4 +1,4 @@
-import type { BoutResult, Organization } from "@/types";
+import type { BoutResult, BoxingEvent, Organization } from "@/types";
 
 /** 団体ごとのバッジ配色 */
 export const ORG_STYLES: Record<Organization, string> = {
@@ -46,6 +46,15 @@ export function isUpcoming(iso: string): boolean {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return d.getTime() >= today.getTime();
+}
+
+/** Prefer the source status; use the date only for legacy events. */
+export function isEventUpcoming(
+  event: Pick<BoxingEvent, "date" | "status">,
+): boolean {
+  return event.status
+    ? event.status === "scheduled"
+    : isUpcoming(event.date);
 }
 
 /** 軽い階級順（軽い→重い）。並べ替え用。 */

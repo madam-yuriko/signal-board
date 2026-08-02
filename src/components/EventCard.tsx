@@ -1,12 +1,13 @@
-import { Calendar, MapPin, Plane } from "lucide-react";
+import { Calendar, ExternalLink, MapPin, Plane } from "lucide-react";
 import type { BoxingEvent } from "@/types";
-import { formatDate, isUpcoming } from "@/lib/format";
+import { formatDate, isEventUpcoming } from "@/lib/format";
 import { eventImageUrl } from "@/lib/eventImage";
 import BoutRow from "@/components/BoutRow";
 import EventImage from "@/components/EventImage";
 
 export default function EventCard({ event }: { event: BoxingEvent }) {
-  const upcoming = isUpcoming(event.date);
+  const upcoming = isEventUpcoming(event);
+  const officialUrl = event.detailsUrl ?? event.sourceUrl;
 
   return (
     <article className="glass-card group overflow-hidden rounded-lg">
@@ -56,7 +57,29 @@ export default function EventCard({ event }: { event: BoxingEvent }) {
           {event.bouts.map((bout) => (
             <BoutRow key={bout.id} bout={bout} />
           ))}
+          {event.bouts.length === 0 && (
+            <div className="rounded-md border border-white/5 bg-black/20 p-2.5 text-[11px] leading-relaxed text-gray-400">
+              {upcoming
+                ? "対戦カードはJBCでの公開後に確認できます。"
+                : "公式の試合結果を参照できます。"}
+            </div>
+          )}
         </div>
+        {officialUrl && (
+          <a
+            href={officialUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 hover:text-sky-200"
+          >
+            <ExternalLink className="h-3 w-3" />
+            {event.detailsUrl
+              ? upcoming
+                ? "公式対戦カードを見る"
+                : "公式試合結果を見る"
+              : "JBC掲載ページを見る"}
+          </a>
+        )}
       </div>
     </article>
   );

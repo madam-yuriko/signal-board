@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Minus, Plus, Type } from "lucide-react";
 
-const STORAGE_KEY = "fontScale-v3"; // Ignore saved values from the larger scale.
-const DEFAULT = 100; // Matches globals.css html font-size.
+const STORAGE_KEY = "fontScale-v4"; // Ignore saved values from the larger scale.
+const DEFAULT = 80; // Matches globals.css html font-size.
 const MIN = 80;
 const MAX = 140;
 const STEP = 8;
@@ -49,7 +49,7 @@ export default function FontScale() {
         suppressHydrationWarning
         className="min-w-[2.8em] rounded px-1 text-center text-[11px] tabular-nums text-gray-300 hover:bg-white/10 hover:text-white"
       >
-        {Math.round((scale / DEFAULT) * 100)}%
+        {Math.round(scale)}%
       </button>
       <button
         type="button"

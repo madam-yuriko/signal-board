@@ -1,5 +1,5 @@
 import type { Bout, BoutResult, BoxingEvent, Organization } from "@/types";
-import { isUpcoming, weightRank } from "@/lib/format";
+import { isEventUpcoming, weightRank } from "@/lib/format";
 
 /** イベント情報を持ったまま個々の試合を扱うための型 */
 export interface BoutWithEvent extends Bout {
@@ -77,7 +77,22 @@ function matchesSeriesTag(event: BoxingEvent, value: string): boolean {
   return event.series === source;
 }
 
-export function availableSeries(_events: BoxingEvent[]): string[] {
+export function availableSeries(events: BoxingEvent[]): string[] {
+  if (events.some((event) => event.sourceName === "JBC")) {
+    const counts = new Map<string, number>();
+    for (const event of events) {
+      if (!event.series) continue;
+      counts.set(
+        event.series,
+        (counts.get(event.series) ?? 0) + 1,
+      );
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"))
+      .slice(0, 12)
+      .map(([series]) => series);
+  }
+
   return [
     ...SERIES_TAGS.map(([label]) => label),
     OVERSEAS_TAG,
@@ -100,7 +115,7 @@ export function filterPromotionEvents(
         return false;
       }
 
-      const upcoming = isUpcoming(event.date);
+      const upcoming = isEventUpcoming(event);
       if (filters.status === "scheduled" && !upcoming) return false;
       if (filters.status === "finished" && upcoming) return false;
 

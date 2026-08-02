@@ -2,13 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Building2, Swords, TriangleAlert } from "lucide-react";
+import {
+  Activity,
+  Building2,
+  Cpu,
+  Film,
+  Swords,
+  TriangleAlert,
+} from "lucide-react";
 import FontScale from "@/components/FontScale";
 
 const NAV = [
-  { href: "/", label: "ボクシング", icon: Swords },
+  { href: "/", label: "CPU&GPU&APU", icon: Cpu },
   { href: "/redevelopment", label: "再開発", icon: Building2 },
-  { href: "/disasters", label: "災害情報", icon: TriangleAlert },
+  { href: "/movies", label: "映画", icon: Film },
+  { href: "/boxing", label: "ボクシング", icon: Swords },
+  { href: "/disasters", label: "災害", icon: TriangleAlert },
 ];
 
 export default function Header() {
@@ -34,25 +43,27 @@ export default function Header() {
           <FontScale />
         </div>
 
-        <nav aria-label="情報カテゴリー" className="grid grid-cols-3 gap-1 pb-2">
+        <nav aria-label="情報カテゴリー" className="grid grid-cols-5 gap-0.5 pb-2 sm:gap-1">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active =
               href === "/"
-                ? pathname === "/" || pathname.startsWith("/world-titles")
-                : pathname.startsWith(href);
+                ? pathname === "/"
+                : href === "/boxing"
+                  ? pathname.startsWith("/boxing") || pathname.startsWith("/world-titles")
+                  : pathname.startsWith(href);
             return (
               <Link
                 key={href}
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`flex h-8 items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-colors ${
+                className={`flex h-8 items-center justify-center gap-1 rounded-md border px-0.5 text-[10px] font-semibold leading-none transition-colors sm:gap-1.5 sm:px-1 sm:text-xs ${
                   active
                     ? "border-white/15 bg-white/10 text-white"
                     : "border-transparent text-gray-500 hover:bg-white/5 hover:text-gray-200"
                 }`}
               >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{label}</span>
+                <Icon className="hidden h-3.5 w-3.5 shrink-0 sm:block" />
+                <span className="whitespace-nowrap">{label}</span>
               </Link>
             );
           })}

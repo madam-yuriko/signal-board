@@ -1,4 +1,4 @@
-export type TopicDomain = "redevelopment" | "disaster";
+export type TopicDomain = "hardware" | "redevelopment" | "movie" | "disaster";
 
 export type TopicStatusTone = "neutral" | "info" | "warning" | "danger" | "success";
 

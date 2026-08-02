@@ -26,7 +26,7 @@ export const disasters: TopicBoard[] = [
       { at: "15:20", text: "河川水位の想定値を更新" },
       { at: "14:45", text: "避難所6か所を追加" },
     ],
-    tags: ["訓練", "河川", "避難情報"],
+    tags: ["訓練", "台風", "河川", "避難情報"],
   },
   {
     id: "ds-earthquake-kanto",
@@ -162,5 +162,59 @@ export const disasters: TopicBoard[] = [
       { at: "7月12日", text: "避難ルート点検を開始" },
     ],
     tags: ["訓練", "津波", "事前準備"],
+  },
+  {
+    id: "ds-typhoon-kanto",
+    domain: "disaster",
+    title: "関東沿岸 台風接近",
+    category: "台風",
+    status: "warning",
+    statusLabel: "警戒",
+    statusTone: "danger",
+    dateLabel: "最終更新 7月28日 16:10",
+    location: "千葉県・茨城県",
+    region: "関東",
+    summary:
+      "台風接近を想定した訓練用シナリオ。進路、河川水位、避難情報、交通影響をまとめて確認。",
+    image:
+      "https://images.unsplash.com/photo-1534088568595-a066f410bcda?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "中心気圧", value: "965hPa想定" },
+      { label: "最大風速", value: "40m/s想定" },
+      { label: "警戒地域", value: "9市町村" },
+      { label: "次回更新", value: "17:00" },
+    ],
+    updates: [
+      { at: "16:10", text: "台風進路の想定値を更新" },
+      { at: "15:40", text: "沿岸部の避難所を追加" },
+    ],
+    tags: ["訓練", "台風", "河川", "避難情報"],
+  },
+  {
+    id: "ds-infectious-disease-national",
+    domain: "disaster",
+    title: "全国 感染症流行モニター",
+    category: "感染症",
+    status: "monitoring",
+    statusLabel: "監視中",
+    statusTone: "warning",
+    dateLabel: "最終更新 7月28日 16:30",
+    location: "全国",
+    region: "全国",
+    summary:
+      "感染症の流行状況を想定した訓練用モニター。地域別の患者動向、医療提供体制、注意喚起をまとめて確認。",
+    image:
+      "https://images.unsplash.com/photo-1584036561566-baf8f5f1b144?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "監視対象", value: "3疾患" },
+      { label: "注意地域", value: "7都道府県" },
+      { label: "医療余力", value: "78%想定" },
+      { label: "次回更新", value: "18:00" },
+    ],
+    updates: [
+      { at: "16:30", text: "地域別の流行状況を更新" },
+      { at: "15:50", text: "医療機関の受入状況を反映" },
+    ],
+    tags: ["コロナ", "インフルエンザ", "はしか", "公衆衛生"],
   },
 ];

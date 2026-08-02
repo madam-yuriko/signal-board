@@ -1,0 +1,166 @@
+import type { TopicBoard } from "@/types/topics";
+
+export const movies: TopicBoard[] = [
+  {
+    id: "movie-stardust-route",
+    domain: "movie",
+    title: "星屑航路",
+    category: "SF・ドラマ",
+    status: "screening",
+    statusLabel: "劇場公開中",
+    statusTone: "info",
+    dateLabel: "2026年7月18日公開",
+    location: "全国劇場",
+    region: "全国",
+    summary:
+      "遠い惑星を目指す観測船を舞台にした群像劇。映像表現と音楽の評価を追跡するモック作品。",
+    image:
+      "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "上映時間", value: "128分" },
+      { label: "監督", value: "高瀬 澪" },
+      { label: "初週動員", value: "18.4万人" },
+      { label: "配給", value: "North Star" },
+    ],
+    updates: [
+      { at: "7月28日", text: "上映館リストを更新" },
+      { at: "7月24日", text: "初週興行データを追加" },
+    ],
+    tags: ["オリジナル", "IMAX", "話題作"],
+  },
+  {
+    id: "movie-summer-letter",
+    domain: "movie",
+    title: "透明な夏の手紙",
+    category: "邦画・青春",
+    status: "upcoming",
+    statusLabel: "公開予定",
+    statusTone: "warning",
+    dateLabel: "2026年8月7日公開予定",
+    location: "全国劇場",
+    region: "全国",
+    summary:
+      "海辺の町で再会した二人の一週間を描く青春映画。予告編公開後の反響と公開スケジュールを整理。",
+    image:
+      "https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "上映時間", value: "116分" },
+      { label: "監督", value: "水野 透" },
+      { label: "前売券", value: "3.2万枚" },
+      { label: "配給", value: "Blue Harbor" },
+    ],
+    updates: [
+      { at: "7月27日", text: "舞台挨拶の予定を追加" },
+      { at: "7月15日", text: "上映劇場の初回情報を掲載" },
+    ],
+    tags: ["青春", "ロケーション", "公開予定"],
+  },
+  {
+    id: "movie-deep-sea-archive",
+    domain: "movie",
+    title: "深海のアーカイブ",
+    category: "ドキュメンタリー",
+    status: "streaming",
+    statusLabel: "配信中",
+    statusTone: "success",
+    dateLabel: "2026年6月12日配信開始",
+    location: "配信サービス",
+    region: "全国",
+    summary:
+      "深海探査の記録映像と研究者の証言をまとめた作品。配信プラットフォームと評価の推移をモック表示。",
+    image:
+      "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "上映時間", value: "94分" },
+      { label: "監督", value: "伊吹 直人" },
+      { label: "視聴評価", value: "4.3 / 5.0" },
+      { label: "配信", value: "Stream One" },
+    ],
+    updates: [
+      { at: "7月22日", text: "字幕版の配信開始を反映" },
+      { at: "7月1日", text: "関連インタビューを追加" },
+    ],
+    tags: ["海洋", "実録", "配信限定"],
+  },
+  {
+    id: "movie-night-runner",
+    domain: "movie",
+    title: "ナイト・ランナー",
+    category: "洋画・アクション",
+    status: "screening",
+    statusLabel: "劇場公開中",
+    statusTone: "info",
+    dateLabel: "2026年7月25日公開",
+    location: "都市部劇場",
+    region: "全国",
+    summary:
+      "夜の都市を駆けるメッセンジャーの24時間を描くアクション作品。上映回数とレビューの変化を確認。",
+    image:
+      "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "上映時間", value: "109分" },
+      { label: "監督", value: "L. Carter" },
+      { label: "上映回数", value: "1日6回" },
+      { label: "配給", value: "Metro Films" },
+    ],
+    updates: [
+      { at: "7月29日", text: "週末上映スケジュールを更新" },
+      { at: "7月26日", text: "レビュー集計を追加" },
+    ],
+    tags: ["アクション", "サスペンス", "字幕・吹替"],
+  },
+  {
+    id: "movie-wind-town",
+    domain: "movie",
+    title: "風の向こうの町",
+    category: "邦画・ヒューマン",
+    status: "upcoming",
+    statusLabel: "公開予定",
+    statusTone: "warning",
+    dateLabel: "2026年9月4日公開予定",
+    location: "全国劇場",
+    region: "全国",
+    summary:
+      "過疎化が進む町の放送局を舞台に、世代の異なる住民たちを描くヒューマンドラマ。",
+    image:
+      "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "上映時間", value: "121分" },
+      { label: "監督", value: "小川 里紗" },
+      { label: "予告再生", value: "86万回" },
+      { label: "配給", value: "Field Note" },
+    ],
+    updates: [
+      { at: "7月23日", text: "完成披露イベントを追加" },
+      { at: "7月9日", text: "予告編の反響を更新" },
+    ],
+    tags: ["ヒューマン", "地方", "完成披露"],
+  },
+  {
+    id: "movie-galaxy-afternoon",
+    domain: "movie",
+    title: "銀河鉄道の午後",
+    category: "アニメーション",
+    status: "streaming",
+    statusLabel: "配信中",
+    statusTone: "success",
+    dateLabel: "2026年5月20日配信開始",
+    location: "配信サービス",
+    region: "全国",
+    summary:
+      "空想の鉄道を旅する二人の少年を描く長編アニメーション。配信ランキングと関連商品の動きを記録。",
+    image:
+      "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1200&q=80",
+    metrics: [
+      { label: "上映時間", value: "102分" },
+      { label: "監督", value: "藤代 望" },
+      { label: "週間順位", value: "3位" },
+      { label: "配信", value: "Cinema+" },
+    ],
+    updates: [
+      { at: "7月21日", text: "オリジナル短編の配信を追加" },
+      { at: "6月30日", text: "海外配信地域を更新" },
+    ],
+    tags: ["アニメ", "ファンタジー", "配信中"],
+  },
+];

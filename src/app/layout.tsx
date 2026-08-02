@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "Signal Board | \u30dc\u30af\u30b7\u30f3\u30b0\u8208\u884c";
+const title = "Signal Board | CPU・GPU・APU・再開発・映画・ボクシング・災害";
 const description =
-  "\u65e5\u672c\u306e\u30dc\u30af\u30b7\u30f3\u30b0\u8208\u884c\u60c5\u5831\u3002";
+  "CPU・GPU・APU、再開発、映画、ボクシング、災害をまとめて確認できる情報ボード。";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -51,7 +51,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var s=localStorage.getItem('fontScale-v3');if(s){document.documentElement.style.fontSize=s+'%'}}catch(e){}",
+              "try{var s=localStorage.getItem('fontScale-v4');if(s){document.documentElement.style.fontSize=s+'%'}}catch(e){}",
           }}
         />
         <Header />
@@ -59,7 +59,7 @@ export default function RootLayout({
           {children}
         </main>
         <footer className="border-t border-white/5 py-4 text-center text-[11px] text-gray-600">
-          Signal Board — 現在の表示データはすべてモックです。
+          Signal Board — ボクシング興行はJBC公開情報、その他は開発用データです。
         </footer>
       </body>
     </html>

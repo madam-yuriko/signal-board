@@ -36,6 +36,8 @@ export interface BoxingEvent {
   id: string;
   /** 開催日 yyyy-mm-dd */
   date: string;
+  /** Source-defined event status; falls back to the date when omitted. */
+  status?: "scheduled" | "finished";
   /** 興行名 */
   name: string;
   /** Event series / promotion name used for grouping and filtering. */
@@ -50,6 +52,15 @@ export interface BoxingEvent {
   broadcaster?: string;
   /** 代表画像 URL（任意。未指定時は lib/eventImage が自動で割り当てる） */
   image?: string;
+  /** Source name. */
+  sourceName?: string;
+  /** Source page URL. */
+  sourceUrl?: string;
+  /** Official bout card or results document URL. */
+  detailsUrl?: string;
+  /** Source update timestamp in ISO 8601 format. */
+  sourceUpdatedAt?: string;
+
   /** カード一覧 */
   bouts: Bout[];
 }

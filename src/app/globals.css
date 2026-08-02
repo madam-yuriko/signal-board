@@ -5,7 +5,7 @@
  * controls can override it to scale the entire app.
  */
 html {
-  font-size: 100%;
+  font-size: 80%;
 }
 
 :root {

@@ -6,6 +6,8 @@ import {
   Building2,
   CalendarClock,
   Clock3,
+  Cpu,
+  Film,
   MapPin,
   RotateCcw,
   Search,
@@ -34,25 +36,68 @@ const DOMAIN_STYLES: Record<
     icon: typeof Building2;
     filter: string;
     imageFallback: string;
+    searchPlaceholder: string;
   }
 > = {
+  hardware: {
+    label: "CPU・GPU・APU",
+    eyebrow: "プロセッサ・グラフィックス",
+    icon: Cpu,
+    filter: "focus:border-violet-400/60",
+    imageFallback: "from-violet-950 via-zinc-900 to-cyan-950",
+    searchPlaceholder: "製品名・メーカー・キーワードで検索",
+  },
   redevelopment: {
     label: "再開発",
     eyebrow: "都市プロジェクト",
     icon: Building2,
     filter: "focus:border-cyan-400/60",
     imageFallback: "from-cyan-950 via-zinc-900 to-emerald-950",
+    searchPlaceholder: "再開発名・地域・キーワードで検索",
+  },
+  movie: {
+    label: "映画",
+    eyebrow: "映画・映像作品",
+    icon: Film,
+    filter: "focus:border-fuchsia-400/60",
+    imageFallback: "from-fuchsia-950 via-zinc-900 to-indigo-950",
+    searchPlaceholder: "作品名・ジャンル・キーワードで検索",
   },
   disaster: {
-    label: "災害情報",
+    label: "災害",
     eyebrow: "防災・危機管理",
     icon: TriangleAlert,
     filter: "focus:border-rose-400/60",
     imageFallback: "from-rose-950 via-zinc-900 to-amber-950",
+    searchPlaceholder: "事象名・地域・キーワードで検索",
   },
 };
 
 function statusStats(domain: TopicDomain, items: TopicBoard[]): Stat[] {
+  if (domain === "hardware") {
+    return [
+      { label: "登録製品", value: items.length, hint: "条件に一致" },
+      {
+        label: "CPU",
+        value: items.filter((item) => item.category === "CPU").length,
+        accent: "text-violet-300",
+        hint: "プロセッサ",
+      },
+      {
+        label: "GPU",
+        value: items.filter((item) => item.category === "GPU").length,
+        accent: "text-cyan-300",
+        hint: "グラフィックス",
+      },
+      {
+        label: "APU",
+        value: items.filter((item) => item.category === "APU").length,
+        accent: "text-emerald-300",
+        hint: "統合プロセッサ",
+      },
+    ];
+  }
+
   if (domain === "redevelopment") {
     return [
       { label: "登録案件", value: items.length, hint: "条件に一致" },
@@ -72,6 +117,30 @@ function statusStats(domain: TopicDomain, items: TopicBoard[]): Stat[] {
         label: "対象地域",
         value: new Set(items.map((item) => item.region)).size,
         hint: "収録エリア",
+      },
+    ];
+  }
+
+  if (domain === "movie") {
+    return [
+      { label: "作品数", value: items.length, hint: "条件に一致" },
+      {
+        label: "公開中",
+        value: items.filter((item) => item.status === "screening").length,
+        accent: "text-fuchsia-300",
+        hint: "劇場公開中",
+      },
+      {
+        label: "公開予定",
+        value: items.filter((item) => item.status === "upcoming").length,
+        accent: "text-amber-300",
+        hint: "近日公開",
+      },
+      {
+        label: "配信中",
+        value: items.filter((item) => item.status === "streaming").length,
+        accent: "text-emerald-300",
+        hint: "見放題・レンタル",
       },
     ];
   }
@@ -295,7 +364,7 @@ export default function TopicDashboard({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`${domainStyle.label}名・地域・キーワードで検索`}
+              placeholder={domainStyle.searchPlaceholder}
               className={`w-full rounded-md border border-white/10 bg-black/30 py-2 pl-8 pr-3 text-xs text-white outline-none placeholder:text-gray-600 ${domainStyle.filter}`}
             />
           </div>
@@ -398,6 +467,10 @@ export default function TopicDashboard({
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-12 text-center text-gray-400">
           {domain === "disaster" ? (
             <BellRing className="h-6 w-6 text-gray-600" />
+          ) : domain === "movie" ? (
+            <Film className="h-6 w-6 text-gray-600" />
+          ) : domain === "hardware" ? (
+            <Cpu className="h-6 w-6 text-gray-600" />
           ) : (
             <Building2 className="h-6 w-6 text-gray-600" />
           )}
