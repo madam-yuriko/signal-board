@@ -78,21 +78,7 @@ function matchesSeriesTag(event: BoxingEvent, value: string): boolean {
 }
 
 export function availableSeries(events: BoxingEvent[]): string[] {
-  if (events.some((event) => event.sourceName === "JBC")) {
-    const counts = new Map<string, number>();
-    for (const event of events) {
-      if (!event.series) continue;
-      counts.set(
-        event.series,
-        (counts.get(event.series) ?? 0) + 1,
-      );
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"))
-      .slice(0, 12)
-      .map(([series]) => series);
-  }
-
+  void events;
   return [
     ...SERIES_TAGS.map(([label]) => label),
     OVERSEAS_TAG,

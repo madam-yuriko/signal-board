@@ -64,7 +64,7 @@ export default function BoxingDashboard({
         label: "開催済み",
         value: finishedEvents,
         accent: "text-emerald-300",
-        hint: "直近180日",
+        hint: "主要シリーズ全履歴",
       },
       {
         label: "国内開催",
@@ -108,7 +108,7 @@ export default function BoxingDashboard({
         >
           <span className="flex items-center justify-end gap-1">
             <Database className="h-3 w-3" />
-            {feedMode === "live" ? "JBC 実データ" : "保存データ"}
+            {feedMode === "live" ? "公式 + JBC" : "公式 + 保存データ"}
           </span>
           {updatedLabel && (
             <span className="mt-0.5 block font-normal opacity-70">
@@ -120,7 +120,7 @@ export default function BoxingDashboard({
 
       {feedMode === "fallback" && (
         <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-          JBCに接続できないため、保存済みデータを表示しています。
+          JBCに接続できないため、公式シリーズ台帳と保存済みデータを表示しています。
         </div>
       )}
 

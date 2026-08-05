@@ -26,6 +26,11 @@ export default function BoutRow({ bout }: { bout: Bout }) {
           <span className={jpFighterWon ? "font-bold text-white" : "text-gray-300"}>
             {bout.jpFighter}
           </span>
+          {jpFighterWon && (
+            <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
+              勝
+            </span>
+          )}
           <span className="text-gray-500">vs</span>
           <span
             className={opponentWon ? "font-bold text-white" : "text-gray-300"}
@@ -37,6 +42,16 @@ export default function BoutRow({ bout }: { bout: Bout }) {
               </span>
             )}
           </span>
+          {opponentWon && (
+            <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
+              勝
+            </span>
+          )}
+          {bout.result === "draw" && (
+            <span className="rounded border border-slate-400/30 bg-slate-400/10 px-1 py-0.5 text-[9px] font-bold text-slate-300">
+              引分
+            </span>
+          )}
         </div>
 
         {bout.notes && (

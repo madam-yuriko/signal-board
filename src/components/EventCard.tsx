@@ -60,7 +60,7 @@ export default function EventCard({ event }: { event: BoxingEvent }) {
           {event.bouts.length === 0 && (
             <div className="rounded-md border border-white/5 bg-black/20 p-2.5 text-[11px] leading-relaxed text-gray-400">
               {upcoming
-                ? "対戦カードはJBCでの公開後に確認できます。"
+                ? "対戦カードは公式発表後に確認できます。"
                 : "公式の試合結果を参照できます。"}
             </div>
           )}
@@ -77,7 +77,7 @@ export default function EventCard({ event }: { event: BoxingEvent }) {
               ? upcoming
                 ? "公式対戦カードを見る"
                 : "公式試合結果を見る"
-              : "JBC掲載ページを見る"}
+              : "公式掲載ページを見る"}
           </a>
         )}
       </div>

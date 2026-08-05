@@ -59,7 +59,7 @@ export default function RootLayout({
           {children}
         </main>
         <footer className="border-t border-white/5 py-4 text-center text-[11px] text-gray-600">
-          Signal Board — ボクシング興行はJBC公開情報、その他は開発用データです。
+          Signal Board — ボクシング興行は公式シリーズ情報とJBC公開情報、その他は開発用データです。
         </footer>
       </body>
     </html>

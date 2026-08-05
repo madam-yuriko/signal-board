@@ -1,7 +1,7 @@
 # Signal Board
 
 CPU・GPU・APU、都市再開発、映画、ボクシング、災害を対象単位のボードで確認する情報監視ダッシュボードです。
-ボクシング興行はJBCの公開情報を参照し、その他の画面はモックデータを表示します。
+ボクシング興行はJBCの公開情報と主要シリーズ各社の公式履歴を参照し、その他の画面はモックデータを表示します。
 
 Next.js 16 (App Router) + React 19 + Tailwind CSS v4 + TypeScript で構築しています。
 
@@ -27,13 +27,15 @@ npm run lint
 
 ## データ
 
-ボクシング興行は日本ボクシングコミッション（JBC）の公開WordPress APIから取得し、6時間ごとに再検証します。
-接続できない場合は `src/data/events.ts` の保存データへフォールバックします。
+ボクシング興行は日本ボクシングコミッション（JBC）の公開WordPress APIを2021年以降までページング取得し、6時間ごとに再検証します。
+Prime Video、Lemino、U-NEXT、TREASURE、3150FIGHTの公式履歴を `src/data/majorBoxingEvents.ts` で補完し、JBCの同日・同会場データと統合します。
+接続できない場合も公式シリーズ台帳と `src/data/events.ts` の保存データを表示します。
 その他のモックデータは `src/data/` に収録しています。
 
 | 内容 | ファイル |
 | --- | --- |
 | ボクシング興行（フォールバック） | `src/data/events.ts` |
+| ボクシング主要シリーズ公式台帳 | `src/data/majorBoxingEvents.ts` |
 | CPU・GPU・APU製品 | `src/data/hardware.ts` |
 | 映画作品 | `src/data/movies.ts` |
 | 再開発案件 | `src/data/redevelopments.ts` |
