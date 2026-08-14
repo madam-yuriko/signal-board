@@ -1,7 +1,13 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
 import { events as fallbackEvents } from "@/data/events";
 import { majorBoxingEvents } from "@/data/majorBoxingEvents";
+import {
+  fetchBoxmobHistoryCards,
+  fetchBoxmobSchedule,
+  type BoxmobCardSet,
+} from "@/lib/boxmobSchedule";
 import { parseJbcResultPdf } from "@/lib/jbcResultPdf";
 import type { BoxingEvent } from "@/types";
 
@@ -228,43 +234,66 @@ function latestUpdate(events: BoxingEvent[]): string | undefined {
     .sort((a, b) => b.localeCompare(a))[0];
 }
 
+async function buildLiveBoxingFeed(): Promise<BoxingFeed> {
+  const [boxmobSchedule, scheduledPosts, finishedPosts] = await Promise.all([
+    fetchBoxmobSchedule().catch((error) => {
+      console.warn("Unable to load Boxing Mobile schedule", error);
+      return [];
+    }),
+    fetchScheduledPosts(),
+    fetchFinishedHistory(),
+  ]);
+  const today = tokyoDate(new Date());
+  const recentCutoff = daysAgoIso(180);
+  const jbcScheduledEvents = scheduledPosts
+    .map((post) => parsePost(post, "scheduled"))
+    .filter((event): event is BoxingEvent => Boolean(event))
+    .filter((event) => event.date >= today);
+  const scheduledEvents = boxmobSchedule.length > 0
+    ? boxmobSchedule.filter((event) => event.date >= today)
+    : jbcScheduledEvents;
+  const allJbcEvents = [
+    ...scheduledEvents,
+    ...finishedPosts
+      .map((post) => parsePost(post, "finished"))
+      .filter((event): event is BoxingEvent => Boolean(event))
+      .filter((event) => event.date <= today),
+  ];
+
+  if (allJbcEvents.length === 0) {
+    throw new Error("JBC API returned no usable events");
+  }
+
+  const uniqueEvents = mergeMajorEvents(allJbcEvents, today).filter(
+    (event) =>
+      event.status === "scheduled" ||
+      event.date >= recentCutoff ||
+      MAJOR_SERIES.has(event.series ?? ""),
+  );
+  const eventsWithResults = await enrichEventsWithResults(uniqueEvents);
+
+  return {
+    events: eventsWithResults,
+    mode: "live",
+    sourceName: boxmobSchedule.length > 0
+      ? "ボクシングモバイル予定 / JBC結果"
+      : "JBC予定・結果 / 公式シリーズ情報",
+    updatedAt: latestUpdate(eventsWithResults),
+  };
+}
+
+const getCachedLiveBoxingFeed = unstable_cache(
+  buildLiveBoxingFeed,
+  ["signal-board-boxing-feed-v5-explicit-major-sids"],
+  {
+    revalidate: REVALIDATE_SECONDS,
+    tags: ["boxing-feed"],
+  },
+);
+
 export async function getBoxingFeed(): Promise<BoxingFeed> {
   try {
-    const [scheduledPosts, finishedPosts] = await Promise.all([
-      fetchScheduledPosts(),
-      fetchFinishedHistory(),
-    ]);
-    const today = tokyoDate(new Date());
-    const recentCutoff = daysAgoIso(180);
-    const allJbcEvents = [
-      ...scheduledPosts
-        .map((post) => parsePost(post, "scheduled"))
-        .filter((event): event is BoxingEvent => Boolean(event))
-        .filter((event) => event.date >= today),
-      ...finishedPosts
-        .map((post) => parsePost(post, "finished"))
-        .filter((event): event is BoxingEvent => Boolean(event))
-        .filter((event) => event.date <= today),
-    ];
-
-    if (allJbcEvents.length === 0) {
-      throw new Error("JBC API returned no usable events");
-    }
-
-    const uniqueEvents = mergeMajorEvents(allJbcEvents, today).filter(
-      (event) =>
-        event.status === "scheduled" ||
-        event.date >= recentCutoff ||
-        MAJOR_SERIES.has(event.series ?? ""),
-    );
-    const eventsWithResults = await enrichEventsWithResults(uniqueEvents);
-
-    return {
-      events: eventsWithResults,
-      mode: "live",
-      sourceName: "公式シリーズ情報 / 日本ボクシングコミッション",
-      updatedAt: latestUpdate(eventsWithResults),
-    };
+    return await getCachedLiveBoxingFeed();
   } catch (error) {
     console.error("Unable to load JBC boxing feed", error);
     const today = tokyoDate(new Date());
@@ -318,6 +347,14 @@ function mergeMajorEvents(
     }
 
     const jbcEvent = merged[existingIndex];
+    if (jbcEvent.sourceName === "ボクシングモバイル") {
+      merged[existingIndex] = {
+        ...curated,
+        ...jbcEvent,
+        image: jbcEvent.image ?? curated.image,
+      };
+      continue;
+    }
     merged[existingIndex] = {
       ...jbcEvent,
       ...curated,
@@ -347,7 +384,6 @@ async function enrichEventsWithResults(
     .filter(
       ({ event }) =>
         event.status === "finished" &&
-        event.bouts.length === 0 &&
         Boolean(event.detailsUrl?.toLowerCase().includes(".pdf")),
     );
   let cursor = 0;
@@ -375,5 +411,115 @@ async function enrichEventsWithResults(
     }),
   );
 
-  return enriched;
+  const boxmobTargets = enriched.filter(
+    (event) =>
+      event.status === "finished" &&
+      !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html"),
+  );
+  if (boxmobTargets.length === 0) return enriched;
+
+  let cardSets: BoxmobCardSet[] = [];
+  try {
+    cardSets = await fetchBoxmobHistoryCards(
+      [...new Set(boxmobTargets.map((event) => event.date))],
+    );
+  } catch (error) {
+    console.warn("Unable to load Boxing Mobile historical cards", error);
+    return enriched;
+  }
+
+  return enriched.map((event) => {
+    if (
+      event.status !== "finished" ||
+      event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html")
+    ) {
+      return event;
+    }
+    const cardSet = selectCardSet(event, cardSets);
+    if (!cardSet) return event;
+    const bouts = mergeCardResults(cardSet.bouts, event.bouts);
+    return {
+      ...event,
+      sourceName: "ボクシングモバイル / JBC結果",
+      detailsUrl: cardSet.detailsUrl,
+      sourceUpdatedAt: event.sourceUpdatedAt,
+      bouts,
+    };
+  });
+}
+
+function normalizeFighterName(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function sameFighter(left: string, right: string): boolean {
+  const a = normalizeFighterName(left);
+  const b = normalizeFighterName(right);
+  return a === b || (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a)));
+}
+
+function samePair(left: { jpFighter: string; opponent: string }, right: { jpFighter: string; opponent: string }): boolean {
+  return (
+    (sameFighter(left.jpFighter, right.jpFighter) && sameFighter(left.opponent, right.opponent)) ||
+    (sameFighter(left.jpFighter, right.opponent) && sameFighter(left.opponent, right.jpFighter))
+  );
+}
+
+function seriesHint(value: string): string {
+  const text = value.normalize("NFKC").toLowerCase();
+  if (text.includes("lemino")) return "lemino";
+  if (text.includes("prime")) return "prime";
+  if (text.includes("u-next") || text.includes("unext")) return "unext";
+  if (text.includes("treasure")) return "treasure";
+  if (text.includes("3150") || text.includes("kworld")) return "3150";
+  if (text.includes("phoenix") || text.includes("フェニックス")) return "phoenix";
+  if (text.includes("lifetime")) return "lifetime";
+  return "";
+}
+
+function selectCardSet(event: BoxingEvent, cardSets: BoxmobCardSet[]): BoxmobCardSet | undefined {
+  if (event.boxmobSid) {
+    const explicit = cardSets.find((cardSet) => cardSet.sid === event.boxmobSid);
+    if (explicit) return explicit;
+  }
+  const sameDate = cardSets.filter((cardSet) => cardSet.date === event.date);
+  if (sameDate.length === 0) return undefined;
+  if (sameDate.length === 1) return sameDate[0];
+
+  const eventHint = seriesHint(`${event.name} ${event.series ?? ""}`);
+  const scored = sameDate.map((cardSet) => {
+    let score = 0;
+    const cardHint = seriesHint(cardSet.name);
+    if (eventHint && eventHint === cardHint) score += 4;
+    for (const resultBout of event.bouts) {
+      if (cardSet.bouts.some((cardBout) => samePair(resultBout, cardBout))) score += 10;
+    }
+    const eventTokens = event.name.normalize("NFKC").toLowerCase().split(/\s+/).filter((token) => token.length >= 3);
+    score += eventTokens.filter((token) => cardSet.name.normalize("NFKC").toLowerCase().includes(token)).length;
+    return { cardSet, score };
+  });
+  scored.sort((left, right) => right.score - left.score);
+  const best = scored[0];
+  const runnerUp = scored[1];
+  if (!best || best.score <= 0 || (runnerUp && runnerUp.score === best.score)) {
+    console.warn(`Ambiguous Boxing Mobile card match for ${event.date} ${event.name}`);
+    return undefined;
+  }
+  return best.cardSet;
+}
+
+function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bouts"]): BoxingEvent["bouts"] {
+  return cards.map((card) => {
+    const result = results.find((candidate) => samePair(card, candidate));
+    return result
+      ? {
+          ...card,
+          result: result.result,
+          method: result.method,
+        }
+      : card;
+  });
 }

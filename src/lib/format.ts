@@ -2,10 +2,10 @@ import type { BoutResult, BoxingEvent, Organization } from "@/types";
 
 /** 団体ごとのバッジ配色 */
 export const ORG_STYLES: Record<Organization, string> = {
-  WBA: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  WBA: "bg-red-500/15 text-red-300 border-red-500/30",
   WBC: "bg-green-600/15 text-green-300 border-green-600/30",
-  IBF: "bg-red-500/15 text-red-300 border-red-500/30",
-  WBO: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  IBF: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+  WBO: "bg-blue-500/15 text-blue-300 border-blue-500/30",
 };
 
 /** 日本側選手から見た結果ラベル */

@@ -1,4 +1,5 @@
-import { Calendar, ExternalLink, MapPin, Plane } from "lucide-react";
+import { useState } from "react";
+import { Calendar, ChevronDown, ExternalLink, MapPin, Plane } from "lucide-react";
 import type { BoxingEvent } from "@/types";
 import { formatDate, isEventUpcoming } from "@/lib/format";
 import { eventImageUrl } from "@/lib/eventImage";
@@ -6,8 +7,15 @@ import BoutRow from "@/components/BoutRow";
 import EventImage from "@/components/EventImage";
 
 export default function EventCard({ event }: { event: BoxingEvent }) {
+  const [expanded, setExpanded] = useState(false);
   const upcoming = isEventUpcoming(event);
   const officialUrl = event.detailsUrl ?? event.sourceUrl;
+  const orderedBouts = [
+    ...event.bouts.filter((bout) => bout.isMainEvent),
+    ...event.bouts.filter((bout) => !bout.isMainEvent),
+  ];
+  const primaryBouts = orderedBouts.slice(0, 2);
+  const additionalBouts = orderedBouts.slice(2);
 
   return (
     <article className="glass-card group overflow-hidden rounded-lg">
@@ -26,6 +34,7 @@ export default function EventCard({ event }: { event: BoxingEvent }) {
           <span className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
             {formatDate(event.date)}
+            {event.startTime && ` ${event.startTime}開始`}
           </span>
           <span className="flex items-center gap-1">
             <MapPin className="h-3 w-3" />
@@ -54,9 +63,37 @@ export default function EventCard({ event }: { event: BoxingEvent }) {
 
       <div className="p-3">
         <div className="space-y-1.5">
-          {event.bouts.map((bout) => (
+          {primaryBouts.map((bout) => (
             <BoutRow key={bout.id} bout={bout} />
           ))}
+          {additionalBouts.length > 0 && (
+            <div
+              className={`grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out ${
+                expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+              }`}
+            >
+              <div className="min-h-0 space-y-1.5">
+                {additionalBouts.map((bout) => (
+                  <BoutRow key={bout.id} bout={bout} />
+                ))}
+              </div>
+            </div>
+          )}
+          {additionalBouts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              aria-expanded={expanded}
+              className="flex w-full items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] font-semibold text-gray-300 transition hover:border-sky-400/30 hover:text-sky-200"
+            >
+              {expanded
+                ? "カードを閉じる"
+                : `残り${additionalBouts.length}試合を表示`}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+              />
+            </button>
+          )}
           {event.bouts.length === 0 && (
             <div className="rounded-md border border-white/5 bg-black/20 p-2.5 text-[11px] leading-relaxed text-gray-400">
               {upcoming

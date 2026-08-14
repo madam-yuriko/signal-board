@@ -23,6 +23,7 @@ function event(
   sourceName: string,
   sourceUrl: string,
   domestic = true,
+  boxmobSid?: string,
 ): MajorEvent {
   return {
     id: `major-${id}`,
@@ -34,6 +35,7 @@ function event(
     domestic,
     sourceName,
     sourceUrl,
+    ...(boxmobSid ? { boxmobSid } : {}),
   };
 }
 
@@ -43,7 +45,7 @@ function event(
  */
 export const majorBoxingEvents: MajorEvent[] = [
   // Prime Video Boxing（公式の「Prime Video Boxingの歴史」＋個別発表）
-  event("prime-01", "2022-04-09", "Prime Video Presents Live Boxing 1", "Prime Video Boxing", "さいたまスーパーアリーナ", "埼玉", "Prime Video", PRIME_HISTORY),
+  event("prime-01", "2022-04-09", "Prime Video Presents Live Boxing 1", "Prime Video Boxing", "さいたまスーパーアリーナ", "埼玉", "Prime Video", PRIME_HISTORY, true, "6262"),
   event("prime-02", "2022-06-07", "Prime Video Presents Live Boxing 2", "Prime Video Boxing", "さいたまスーパーアリーナ", "埼玉", "Prime Video", PRIME_HISTORY),
   event("prime-03", "2022-11-01", "Prime Video Presents Live Boxing 3", "Prime Video Boxing", "さいたまスーパーアリーナ", "埼玉", "Prime Video", PRIME_HISTORY),
   event("prime-04", "2023-04-08", "Prime Video Presents Live Boxing 4", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY),
@@ -54,7 +56,7 @@ export const majorBoxingEvents: MajorEvent[] = [
   event("prime-09", "2024-07-20", "Prime Video Presents Live Boxing 9", "Prime Video Boxing", "両国国技館", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-10-1", "2024-10-13", "Prime Video Boxing 10 DAY 1", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-10-2", "2024-10-14", "Prime Video Boxing 10 DAY 2", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY),
-  event("prime-11", "2025-02-24", "Prime Video Boxing 11", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY),
+  event("prime-11", "2025-02-24", "Prime Video Boxing 11", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY, true, "7429"),
   event("prime-12", "2025-05-04", "Prime Video Boxing 12", "Prime Video Boxing", "T-モバイル・アリーナ", "ラスベガス", "Prime Video", PRIME_HISTORY, false),
   event("prime-13", "2025-06-08", "Prime Video Boxing 13", "Prime Video Boxing", "有明コロシアム", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-14", "2025-11-24", "Prime Video Boxing 14", "Prime Video Boxing", "TOYOTA ARENA TOKYO", "東京", "Prime Video", PRIME_HISTORY),

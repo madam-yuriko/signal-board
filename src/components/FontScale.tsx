@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Minus, Plus, Type } from "lucide-react";
 
 const STORAGE_KEY = "fontScale-v4"; // Ignore saved values from the larger scale.
@@ -20,8 +20,17 @@ function readSaved(): number {
 }
 
 export default function FontScale() {
-  // 保存値を初期値に。実際の DOM 反映は layout の inline script が描画前に行う。
-  const [scale, setScale] = useState<number>(readSaved);
+  // サーバーとブラウザで初回HTMLを一致させ、保存値はhydration後に反映する。
+  const [scale, setScale] = useState<number>(DEFAULT);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const saved = readSaved();
+      setScale(saved);
+      apply(saved);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   function update(next: number) {
     const clamped = Math.min(MAX, Math.max(MIN, next));

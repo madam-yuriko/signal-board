@@ -209,7 +209,7 @@ export async function parseJbcResultPdf(
       });
       bouts.push(...parsePage(items, eventId, pageNumber));
     }
-    if (bouts.length > 0) bouts[bouts.length - 1].isMainEvent = true;
+    if (bouts.length > 0) bouts[0].isMainEvent = true;
     return bouts;
   } finally {
     await loadingTask.destroy();

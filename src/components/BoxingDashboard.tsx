@@ -108,7 +108,7 @@ export default function BoxingDashboard({
         >
           <span className="flex items-center justify-end gap-1">
             <Database className="h-3 w-3" />
-            {feedMode === "live" ? "公式 + JBC" : "公式 + 保存データ"}
+            {feedMode === "live" ? "ボクモバ + JBC" : "公式 + 保存データ"}
           </span>
           {updatedLabel && (
             <span className="mt-0.5 block font-normal opacity-70">
@@ -120,7 +120,7 @@ export default function BoxingDashboard({
 
       {feedMode === "fallback" && (
         <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-          JBCに接続できないため、公式シリーズ台帳と保存済みデータを表示しています。
+          ボクシングモバイルとJBCに接続できないため、公式シリーズ台帳と保存済みデータを表示しています。
         </div>
       )}
 
@@ -145,9 +145,9 @@ export default function BoxingDashboard({
           </button>
         </div>
       ) : (
-        <div className="gap-3 [column-fill:_balance] columns-1 sm:columns-2 xl:columns-3">
+        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((event) => (
-            <div key={event.id} className="mb-3 break-inside-avoid">
+            <div key={event.id}>
               <EventCard event={event} />
             </div>
           ))}

@@ -36,6 +36,8 @@ export interface BoxingEvent {
   id: string;
   /** 開催日 yyyy-mm-dd */
   date: string;
+  /** 開始時刻 HH:mm（任意） */
+  startTime?: string;
   /** Source-defined event status; falls back to the date when omitted. */
   status?: "scheduled" | "finished";
   /** 興行名 */
@@ -58,6 +60,8 @@ export interface BoxingEvent {
   sourceUrl?: string;
   /** Official bout card or results document URL. */
   detailsUrl?: string;
+  /** Boxing Mobile event ID when a historical event needs an explicit match. */
+  boxmobSid?: string;
   /** Source update timestamp in ISO 8601 format. */
   sourceUpdatedAt?: string;
 

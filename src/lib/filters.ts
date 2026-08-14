@@ -74,6 +74,9 @@ function matchesSeriesTag(event: BoxingEvent, value: string): boolean {
     return event.domestic && !SERIES_TAGS.some(([, source]) => source === event.series);
   }
   const source = SERIES_TAGS.find(([label]) => label === value)?.[1] ?? value;
+  if (source === "Lemino Boxing" && /PHOENIX\s*BATTLE|フェニックスバトル/i.test(event.name)) {
+    return false;
+  }
   return event.series === source;
 }
 
@@ -122,7 +125,17 @@ export function filterPromotionEvents(
         .toLowerCase()
         .includes(query);
     })
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => {
+      const aUpcoming = isEventUpcoming(a);
+      const bUpcoming = isEventUpcoming(b);
+      if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+      if (a.date !== b.date) {
+        return aUpcoming
+          ? a.date.localeCompare(b.date)
+          : b.date.localeCompare(a.date);
+      }
+      return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+    });
 }
 
 export function activeEventFilterCount(filters: EventFilters): number {
