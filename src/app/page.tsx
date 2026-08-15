@@ -1,13 +1,19 @@
 import TopicDashboard from "@/components/TopicDashboard";
-import { hardware } from "@/data/hardware";
+import { getTopicFeed } from "@/lib/topicFeed";
 
-export default function DashboardPage() {
+export const revalidate = 21600;
+
+export default async function DashboardPage() {
+  const feed = await getTopicFeed("hardware");
   return (
     <TopicDashboard
       domain="hardware"
       title="CPU・GPU・APU情報"
-      description="デスクトップ向けプロセッサとグラフィックス製品を、カテゴリ・世代・用途ごとに確認できるモックボードです。"
-      items={hardware}
+      description="AMD・NVIDIAなどの公式ニュースを、CPU・GPU・APUのカテゴリごとに確認できます。"
+      items={feed.items}
+      feedMode={feed.mode}
+      sourceName={feed.sourceName}
+      updatedAt={feed.updatedAt}
     />
   );
 }

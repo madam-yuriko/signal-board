@@ -1,13 +1,19 @@
 import TopicDashboard from "@/components/TopicDashboard";
-import { movies } from "@/data/movies";
+import { getTopicFeed } from "@/lib/topicFeed";
 
-export default function MoviesPage() {
+export const revalidate = 21600;
+
+export default async function MoviesPage() {
+  const feed = await getTopicFeed("movie");
   return (
     <TopicDashboard
       domain="movie"
       title="映画情報"
-      description="劇場公開・公開予定・配信中の作品を、ジャンルや公開状態ごとに確認できるモックボードです。"
-      items={movies}
+      description="映画.comの上映中・公開予定作品を、公開状態と作品情報ごとに確認できます。"
+      items={feed.items}
+      feedMode={feed.mode}
+      sourceName={feed.sourceName}
+      updatedAt={feed.updatedAt}
     />
   );
 }

@@ -270,6 +270,20 @@ interface Props {
   title: string;
   description: string;
   items: TopicBoard[];
+  feedMode: "live" | "fallback";
+  sourceName: string;
+  updatedAt?: string;
+}
+
+function formatUpdatedAt(value?: string): string | undefined {
+  if (!value) return undefined;
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 export default function TopicDashboard({
@@ -277,6 +291,9 @@ export default function TopicDashboard({
   title,
   description,
   items,
+  feedMode,
+  sourceName,
+  updatedAt,
 }: Props) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -285,6 +302,7 @@ export default function TopicDashboard({
 
   const domainStyle = DOMAIN_STYLES[domain];
   const DomainIcon = domainStyle.icon;
+  const updatedLabel = formatUpdatedAt(updatedAt);
   const statuses = useMemo(
     () =>
       [...new Map(items.map((item) => [item.status, item.statusLabel])).entries()],
@@ -349,10 +367,28 @@ export default function TopicDashboard({
             {description}
           </p>
         </div>
-        <span className="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold text-gray-400">
-          モックデータ
+        <span
+          className={`shrink-0 rounded-md border px-2 py-1 text-right text-[10px] font-semibold ${
+            feedMode === "live"
+              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+              : "border-amber-400/20 bg-amber-400/10 text-amber-300"
+          }`}
+          title={sourceName}
+        >
+          {feedMode === "live" ? "実データ" : "保存データ"}
+          {updatedLabel && (
+            <span className="mt-0.5 block font-normal opacity-70">
+              更新 {updatedLabel}
+            </span>
+          )}
         </span>
       </section>
+
+      {feedMode === "fallback" && (
+        <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+          外部ソースに接続できないため、保存済みデータを表示しています。
+        </div>
+      )}
 
       <StatCards stats={statusStats(domain, filtered)} />
 

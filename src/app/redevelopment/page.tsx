@@ -1,13 +1,19 @@
 import TopicDashboard from "@/components/TopicDashboard";
-import { redevelopments } from "@/data/redevelopments";
+import { getTopicFeed } from "@/lib/topicFeed";
 
-export default function RedevelopmentPage() {
+export const revalidate = 21600;
+
+export default async function RedevelopmentPage() {
+  const feed = await getTopicFeed("redevelopment");
   return (
     <TopicDashboard
       domain="redevelopment"
       title="再開発プロジェクト"
-      description="都市開発を案件単位で確認。計画、工事、段階開業までの状態と直近の更新をまとめています。"
-      items={redevelopments}
+      description="東京都都市整備局の報道発表から、都市整備・再開発に関係する更新をまとめています。"
+      items={feed.items}
+      feedMode={feed.mode}
+      sourceName={feed.sourceName}
+      updatedAt={feed.updatedAt}
     />
   );
 }

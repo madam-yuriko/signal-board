@@ -1,13 +1,19 @@
 import TopicDashboard from "@/components/TopicDashboard";
-import { disasters } from "@/data/disasters";
+import { getTopicFeed } from "@/lib/topicFeed";
 
-export default function DisastersPage() {
+export const revalidate = 21600;
+
+export default async function DisastersPage() {
+  const feed = await getTopicFeed("disaster");
   return (
     <TopicDashboard
       domain="disaster"
       title="災害・防災"
-      description="災害事象を地域単位で確認する訓練用ビュー。警戒状態、影響範囲、更新履歴をまとめています。"
-      items={disasters}
+      description="気象庁の地震・火山防災情報を、発表時刻と警戒状態ごとに確認できます。"
+      items={feed.items}
+      feedMode={feed.mode}
+      sourceName={feed.sourceName}
+      updatedAt={feed.updatedAt}
     />
   );
 }

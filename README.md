@@ -1,7 +1,7 @@
 # Signal Board
 
 CPU・GPU・APU、都市再開発、映画、ボクシング、災害を対象単位のボードで確認する情報監視ダッシュボードです。
-ボクシング興行はボクシングモバイルの公開スケジュール、JBCの公開結果、主要シリーズ各社の公式履歴を参照し、その他の画面はモックデータを表示します。
+各タブは公開Webソースを取得して正規化し、6時間キャッシュして表示します。接続できない場合はタブごとの保存データへフォールバックします。
 
 Next.js 16 (App Router) + React 19 + Tailwind CSS v4 + TypeScript で構築しています。
 
@@ -30,9 +30,9 @@ npm run lint
 開催予定・開催済みを問わず、日付・対戦カードの正本はボクシングモバイルの公開スケジュール／月別試合速報と興行詳細ページです。過去興行も `sid` から同じ詳細カードを取得し、6時間ごとに再検証します。
 日本ボクシングコミッション（JBC）の公開WordPress APIと公式結果PDFは、ボクシングモバイルのカードへ勝敗・決着方法を補完するためだけに使います。カードの順序や選手名はJBC側で置き換えません。
 取得・解析・統合後の完成済みフィードを6時間キャッシュし、通常の画面表示では外部アクセスやPDF再解析を行いません。
+CPU・GPU・APUはAMD / NVIDIA公式RSS、再開発は東京都都市整備局の報道発表、映画は映画.comの上映中・公開予定、災害は気象庁の地震火山情報XMLを参照します。
 Prime Video、Lemino、U-NEXT、TREASURE、3150FIGHTの公式履歴を `src/data/majorBoxingEvents.ts` で補完し、JBCの同日・同会場データと統合します。
-接続できない場合も公式シリーズ台帳と `src/data/events.ts` の保存データを表示します。
-その他のモックデータは `src/data/` に収録しています。
+接続できない場合も各タブの `src/data/` 保存データを表示します。
 
 | 内容 | ファイル |
 | --- | --- |
@@ -42,6 +42,7 @@ Prime Video、Lemino、U-NEXT、TREASURE、3150FIGHTの公式履歴を `src/data
 | 映画作品 | `src/data/movies.ts` |
 | 再開発案件 | `src/data/redevelopments.ts` |
 | 災害・防災事象 | `src/data/disasters.ts` |
+| 他タブの取得・キャッシュ・フォールバック | `src/lib/topicFeed.ts` |
 | 世界王者 | `src/data/champions.ts` |
 
 ## 構成
