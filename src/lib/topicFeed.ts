@@ -5,10 +5,17 @@ import { disasters } from "@/data/disasters";
 import { hardware } from "@/data/hardware";
 import { movies } from "@/data/movies";
 import { redevelopments } from "@/data/redevelopments";
-import type { TopicBoard, TopicDomain, TopicStatusTone } from "@/types/topics";
+import type {
+  MovieType,
+  TopicBoard,
+  TopicDomain,
+  TopicStatusTone,
+} from "@/types/topics";
 
 const REVALIDATE_SECONDS = 60 * 60 * 6;
 const FETCH_TIMEOUT_MS = 12_000;
+const EIGA_ORIGIN = "https://eiga.com";
+const MOVIE_UPCOMING_DAYS = 90;
 
 interface FeedEntry {
   title: string;
@@ -16,6 +23,8 @@ interface FeedEntry {
   description?: string;
   date?: string;
   image?: string;
+  movieType?: MovieType;
+  genres?: string[];
 }
 
 export interface TopicFeed {
@@ -73,6 +82,51 @@ function firstMatch(value: string, pattern: RegExp): string | undefined {
   return value.match(pattern)?.[1];
 }
 
+const MOVIE_GENRE_RULES: Array<[string, RegExp]> = [
+  ["アクション", /アクション|action/i],
+  ["ホラー", /ホラー|horror/i],
+  ["サスペンス", /サスペンス|thriller|suspense/i],
+  ["パニック", /パニック|panic/i],
+  ["SF", /\bSF\b|サイエンスフィクション|science fiction/i],
+  ["ファンタジー", /ファンタジー|fantasy/i],
+  ["ドラマ", /ドラマ|drama/i],
+  ["コメディ", /コメディ|喜劇|comedy/i],
+  ["恋愛", /恋愛|ラブストーリー|romance/i],
+  ["青春", /青春|coming[- ]of[- ]age/i],
+  ["アドベンチャー", /アドベンチャー|冒険|adventure/i],
+  ["ミステリー", /ミステリー|mystery/i],
+  ["ドキュメンタリー", /ドキュメンタリー|documentary/i],
+  ["戦争", /戦争|war film/i],
+  ["スポーツ", /スポーツ|sports/i],
+  ["音楽", /ミュージカル|音楽|music|musical/i],
+  ["歴史・伝記", /歴史|伝記|historical|biographical/i],
+  ["ファミリー", /ファミリー|family/i],
+];
+
+function classifyMovie(title: string, description: string, html: string): Pick<FeedEntry, "movieType" | "genres"> {
+  const detailText = plainText(html);
+  const country = detailText.match(/製作[／/]\s*[^／/\n]{1,20}[／/]\s*([^\s／/、,]+)/i)?.[1] ?? "";
+  const story = detailText.match(/解説・あらすじ([\s\S]*?)(?:スタッフ・キャスト|全てのスタッフ)/i)?.[1] ?? detailText.slice(0, 4_000);
+  const searchable = `${title} ${description} ${country} ${story}`;
+  const anime = /アニメーション|アニメ作品|劇場版アニメ|anime|animation|3d\s*cg|cg作品/i.test(searchable);
+  const movieType: MovieType = anime
+    ? "アニメ/CG"
+    : country
+      ? /日本|japan/i.test(country)
+        ? "邦画"
+        : "洋画"
+      : /[A-Za-z]{3,}/.test(title)
+        ? "洋画"
+        : "邦画";
+  const genres = MOVIE_GENRE_RULES
+    .filter(([, pattern]) => pattern.test(searchable))
+    .map(([genre]) => genre);
+  return {
+    movieType,
+    genres: genres.length > 0 ? genres : ["その他"],
+  };
+}
+
 function parseFeed(xml: string): FeedEntry[] {
   const blocks = [...xml.matchAll(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)>/gi)];
   return blocks.flatMap((match) => {
@@ -92,6 +146,11 @@ function parseFeed(xml: string): FeedEntry[] {
 
 function parseDate(value?: string): Date | undefined {
   if (!value) return undefined;
+  const japaneseDate = value.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if (japaneseDate) {
+    const [, year, month, day] = japaneseDate;
+    return new Date(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00+09:00`);
+  }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
@@ -125,13 +184,47 @@ function toneFor(status: string): TopicStatusTone {
 }
 
 async function fetchText(url: string, accept = "text/html,application/xhtml+xml,application/xml") {
-  const response = await fetch(url, {
-    headers: { Accept: accept, "User-Agent": "SignalBoard/1.0 (+public data reader)" },
-    next: { revalidate: REVALIDATE_SECONDS },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-  return response.text();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, {
+      headers: { Accept: accept, "User-Agent": "SignalBoard/1.0 (+public data reader)" },
+      next: { revalidate: REVALIDATE_SECONDS },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (response.ok) return response.text();
+    if (response.status !== 429 || attempt === 2) {
+      throw new Error(`${url} returned ${response.status}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+  }
+  throw new Error(`${url} request failed`);
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (cursor < values.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await worker(values[index]);
+      }
+    }),
+  );
+  return results;
+}
+
+async function safeFetchText(url: string): Promise<string> {
+  try {
+    return await fetchText(url);
+  } catch (error) {
+    console.warn(`Unable to load movie listing page ${url}`, error);
+    return "";
+  }
 }
 
 async function fetchHardware(): Promise<TopicFeed> {
@@ -213,7 +306,35 @@ async function fetchRedevelopment(): Promise<TopicFeed> {
 }
 
 function movieUrls(indexHtml: string): string[] {
-  return [...new Set([...indexHtml.matchAll(/https:\/\/eiga\.com\/movie\/\d+\//g)].map((match) => match[0]))];
+  const listedUrls = [...indexHtml.matchAll(
+    /class=["']list-block\s+list-block2["'][\s\S]{0,1800}?href=["'](?:https?:\/\/eiga\.com)?(\/movie\/\d+\/)/gi,
+  )].map((match) => `${EIGA_ORIGIN}${match[1]}`);
+  const urls = listedUrls.length > 0
+    ? listedUrls
+    : [...indexHtml.matchAll(/(?:https?:\/\/eiga\.com)?(\/movie\/\d+\/)/gi)]
+      .map((match) => `${EIGA_ORIGIN}${match[1]}`);
+  return [...new Set(urls)];
+}
+
+function nowMoviePageUrls(indexHtml: string): string[] {
+  const pages = [...indexHtml.matchAll(/href=["'](\/now\/all\/release\/\d+\/)["']/gi)]
+    .map((match) => `${EIGA_ORIGIN}${match[1]}`);
+  return [...new Set([`${EIGA_ORIGIN}/now/`, ...pages])];
+}
+
+function comingMoviePageUrls(indexHtml: string): string[] {
+  const today = new Date();
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() + MOVIE_UPCOMING_DAYS);
+  const minMonth = today.getFullYear() * 12 + today.getMonth();
+  const maxMonth = cutoff.getFullYear() * 12 + cutoff.getMonth();
+  const pages = [...indexHtml.matchAll(/href=["'](\/coming\/(\d{4})(\d{2})\/)["']/gi)]
+    .filter((match) => {
+      const month = Number(match[2]) * 12 + Number(match[3]) - 1;
+      return Number(match[3]) <= 12 && month >= minMonth && month <= maxMonth;
+    })
+    .map((match) => `${EIGA_ORIGIN}${match[1]}`);
+  return [...new Set([`${EIGA_ORIGIN}/coming/`, ...pages])];
 }
 
 async function fetchMovieDetails(url: string, status: "screening" | "upcoming"): Promise<FeedEntry | undefined> {
@@ -221,34 +342,75 @@ async function fetchMovieDetails(url: string, status: "screening" | "upcoming"):
     const html = await fetchText(url);
     const title = firstMatch(html, /<h1 class="page-title">([\s\S]*?)<\/h1>/i);
     if (!title) return undefined;
+    const cleanTitle = plainText(title);
+    const description = plainText(firstMatch(html, /<meta name="description" content="([^"]+)"/i) ?? "");
+    const classification = classifyMovie(cleanTitle, description, html);
     return {
-      title: plainText(title),
+      title: cleanTitle,
       link: url,
-      description: plainText(firstMatch(html, /<meta name="description" content="([^"]+)"/i) ?? ""),
-      date: firstMatch(html, /<p class="date-published">[\s\S]*?<strong>([\s\S]*?)<\/strong>/i),
+      description,
+      date:
+        firstMatch(html, /class=["']date-published["'][^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>/i) ??
+        firstMatch(html, /<p[^>]+class=["']data["'][^>]*>[\s\S]*?劇場公開日[：:]\s*(\d{4}年\d{1,2}月\d{1,2}日)/i),
       image: firstMatch(html, /<div class="hero-img">[\s\S]*?<img[^>]+src="([^"]+)"/i),
       status,
+      ...classification,
     } as FeedEntry & { status: "screening" | "upcoming" };
   } catch {
     return undefined;
   }
 }
 
+function getCachedMovieDetails(
+  url: string,
+  status: "screening" | "upcoming",
+): Promise<FeedEntry | undefined> {
+  return unstable_cache(
+    () => fetchMovieDetails(url, status),
+    ["signal-board-movie-detail-v1", status, url],
+    {
+      revalidate: REVALIDATE_SECONDS,
+      tags: ["movie-feed-details"],
+    },
+  )();
+}
+
 async function fetchMovies(): Promise<TopicFeed> {
-  const indexes = await Promise.all([fetchText("https://eiga.com/now/"), fetchText("https://eiga.com/upcoming/")]);
-  const urls = [
-    ...movieUrls(indexes[0]).map((url) => ({ url, status: "screening" as const })),
-    ...movieUrls(indexes[1]).map((url) => ({ url, status: "upcoming" as const })),
-  ].filter((item, index, list) => list.findIndex((candidate) => candidate.url === item.url) === index).slice(0, 20);
-  const details = (await Promise.all(urls.map((item) => fetchMovieDetails(item.url, item.status)))).filter(
-    (entry): entry is FeedEntry & { status: "screening" | "upcoming" } => Boolean(entry),
+  const nowIndex = await fetchText(`${EIGA_ORIGIN}/now/`);
+  const comingIndex = await safeFetchText(`${EIGA_ORIGIN}/coming/`);
+  const nowPageUrls = nowMoviePageUrls(nowIndex);
+  const nowPages = await mapWithConcurrency(
+    nowPageUrls.slice(1),
+    2,
+    safeFetchText,
   );
+  const comingPageUrls = comingIndex ? comingMoviePageUrls(comingIndex) : [];
+  const comingPages = comingIndex
+    ? await mapWithConcurrency(comingPageUrls.slice(1), 2, safeFetchText)
+    : [];
+  const urls = [
+    ...[nowIndex, ...nowPages].flatMap(movieUrls).map((url) => ({ url, status: "screening" as const })),
+    ...[comingIndex, ...comingPages].flatMap(movieUrls).map((url) => ({ url, status: "upcoming" as const })),
+  ].filter((item, index, list) => list.findIndex((candidate) => candidate.url === item.url) === index);
+  const details = (await mapWithConcurrency(urls, 6, (item) => getCachedMovieDetails(item.url, item.status))).filter(
+    (entry): entry is FeedEntry & { status: "screening" | "upcoming" } => Boolean(entry),
+  ).filter((entry) => {
+    if (entry.status === "screening") return true;
+    const releaseDate = parseDate(entry.date);
+    if (!releaseDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cutoff = new Date(today);
+    cutoff.setDate(cutoff.getDate() + MOVIE_UPCOMING_DAYS);
+    return releaseDate >= today && releaseDate <= cutoff;
+  });
   if (details.length === 0) throw new Error("No movie entries");
   const items = details.map((entry, index): TopicBoard => ({
     id: `live-movie-${entry.link ?? index}`,
     domain: "movie",
+    sourceUrl: entry.link,
     title: entry.title,
-    category: entry.status === "screening" ? "劇場公開中" : "公開予定",
+    category: entry.genres?.[0] ?? "その他",
     status: entry.status,
     statusLabel: entry.status === "screening" ? "劇場公開中" : "公開予定",
     statusTone: entry.status === "screening" ? "info" : "warning",
@@ -264,7 +426,13 @@ async function fetchMovies(): Promise<TopicFeed> {
       { label: "情報源", value: "映画.com" },
     ],
     updates: [{ at: dateLabel(entry.date, "").trim() || "最新", text: "映画.comの作品情報を更新" }],
-    tags: ["映画.com", entry.status === "screening" ? "上映中" : "公開予定"],
+    tags: [
+      "映画.com",
+      entry.status === "screening" ? "上映中" : "公開予定",
+      ...(entry.genres ?? []),
+    ],
+    movieType: entry.movieType,
+    genres: entry.genres,
   }));
   return { items, mode: "live", sourceName: "映画.com 上映中・公開予定", updatedAt: new Date().toISOString() };
 }
@@ -317,7 +485,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-  ["signal-board-topic-feed-v1"],
+  ["signal-board-topic-feed-v8-differential-movie-details"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 

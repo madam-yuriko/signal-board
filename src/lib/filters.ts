@@ -60,6 +60,7 @@ const SERIES_TAGS = [
   ["Phoenix Battle", "Phoenix Battle"],
   ["Prime Video Boxing", "Prime Video Boxing"],
   ["U-NEXT Boxing", "U-NEXT Boxing"],
+  ["Dynamic Glove", "Dynamic Glove"],
   ["Lifetime Boxing Fights", "Lifetime Boxing Fights"],
   ["Treasure-Boxing", "Treasure-Boxing"],
   ["3150 Fight", "3150 FIGHT"],

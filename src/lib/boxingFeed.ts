@@ -23,6 +23,7 @@ const MAJOR_SERIES = new Set([
   "Phoenix Battle",
   "Prime Video Boxing",
   "U-NEXT Boxing",
+  "Dynamic Glove",
   "Lifetime Boxing Fights",
   "Treasure-Boxing",
   "3150 FIGHT",
@@ -284,7 +285,7 @@ async function buildLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedLiveBoxingFeed = unstable_cache(
   buildLiveBoxingFeed,
-  ["signal-board-boxing-feed-v5-explicit-major-sids"],
+  ["signal-board-boxing-feed-v6-split-dynamic-glove"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -472,6 +473,7 @@ function seriesHint(value: string): string {
   const text = value.normalize("NFKC").toLowerCase();
   if (text.includes("lemino")) return "lemino";
   if (text.includes("prime")) return "prime";
+  if (text.includes("dynamic glove")) return "dynamic-glove";
   if (text.includes("u-next") || text.includes("unext")) return "unext";
   if (text.includes("treasure")) return "treasure";
   if (text.includes("3150") || text.includes("kworld")) return "3150";

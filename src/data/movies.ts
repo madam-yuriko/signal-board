@@ -27,6 +27,8 @@ export const movies: TopicBoard[] = [
       { at: "7月24日", text: "初週興行データを追加" },
     ],
     tags: ["オリジナル", "IMAX", "話題作"],
+    movieType: "邦画",
+    genres: ["SF", "ドラマ"],
   },
   {
     id: "movie-summer-letter",
@@ -54,6 +56,8 @@ export const movies: TopicBoard[] = [
       { at: "7月15日", text: "上映劇場の初回情報を掲載" },
     ],
     tags: ["青春", "ロケーション", "公開予定"],
+    movieType: "邦画",
+    genres: ["青春", "恋愛", "ドラマ"],
   },
   {
     id: "movie-deep-sea-archive",
@@ -81,6 +85,8 @@ export const movies: TopicBoard[] = [
       { at: "7月1日", text: "関連インタビューを追加" },
     ],
     tags: ["海洋", "実録", "配信限定"],
+    movieType: "邦画",
+    genres: ["ドキュメンタリー", "ドラマ"],
   },
   {
     id: "movie-night-runner",
@@ -108,6 +114,8 @@ export const movies: TopicBoard[] = [
       { at: "7月26日", text: "レビュー集計を追加" },
     ],
     tags: ["アクション", "サスペンス", "字幕・吹替"],
+    movieType: "洋画",
+    genres: ["アクション", "サスペンス"],
   },
   {
     id: "movie-wind-town",
@@ -135,6 +143,8 @@ export const movies: TopicBoard[] = [
       { at: "7月9日", text: "予告編の反響を更新" },
     ],
     tags: ["ヒューマン", "地方", "完成披露"],
+    movieType: "邦画",
+    genres: ["ドラマ", "ヒューマン"],
   },
   {
     id: "movie-galaxy-afternoon",
@@ -162,5 +172,7 @@ export const movies: TopicBoard[] = [
       { at: "6月30日", text: "海外配信地域を更新" },
     ],
     tags: ["アニメ", "ファンタジー", "配信中"],
+    movieType: "アニメ/CG",
+    genres: ["アニメ", "ファンタジー"],
   },
 ];

@@ -232,7 +232,8 @@ function seriesForName(name: string): string {
   if (/PHOENIX\s*BATTLE|フェニックスバトル/i.test(name)) return "Phoenix Battle";
   if (/Lemino/i.test(name)) return "Lemino Boxing";
   if (/Prime Video/i.test(name)) return "Prime Video Boxing";
-  if (/U-NEXT|DYNAMIC GLOVE/i.test(name)) return "U-NEXT Boxing";
+  if (/DYNAMIC\s*GLOVE/i.test(name)) return "Dynamic Glove";
+  if (/U-NEXT/i.test(name)) return "U-NEXT Boxing";
   if (/TREASURE/i.test(name)) return "Treasure-Boxing";
   if (/3150|KWORLD3/i.test(name)) return "3150 FIGHT";
   if (/Lifetime/i.test(name)) return "Lifetime Boxing Fights";
