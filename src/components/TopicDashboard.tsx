@@ -47,24 +47,28 @@ const MOVIE_THEATER_PREFECTURES = [
 type TheaterOption = { name: string; path: string };
 const MOVIE_GENRE_ORDER = [
   "アクション",
-  "ホラー",
-  "サスペンス",
+  "アドベンチャー",
+  "サバイバル",
   "パニック",
   "SF",
   "ファンタジー",
+  "ホラー",
+  "スリラー",
+  "サスペンス",
+  "ミステリー",
+  "犯罪",
+  "バイオレンス",
   "ドラマ",
-  "コメディ",
+  "ヒューマン",
   "恋愛",
   "青春",
-  "アドベンチャー",
-  "ミステリー",
-  "ドキュメンタリー",
-  "戦争",
+  "コメディ",
+  "ファミリー",
   "スポーツ",
   "音楽",
+  "戦争",
   "歴史・伝記",
-  "ファミリー",
-  "ヒューマン",
+  "ドキュメンタリー",
   "その他",
 ] as const;
 
@@ -80,9 +84,16 @@ function movieTypeFor(item: TopicBoard): MovieType {
 }
 
 function movieGenresFor(item: TopicBoard): string[] {
-  if (item.genres && item.genres.length > 0) return item.genres;
-  const known = new Set<string>(MOVIE_GENRE_ORDER);
-  return item.tags.filter((tag) => known.has(tag));
+  const rawGenres = item.genres && item.genres.length > 0
+    ? item.genres
+    : item.tags.filter((tag) => new Set<string>(MOVIE_GENRE_ORDER).has(tag));
+  const genres = rawGenres.flatMap((genre) => genre === "SFホラー" ? ["SF", "ホラー"] : [genre]);
+  const order = new Map<string, number>(MOVIE_GENRE_ORDER.map((genre, index) => [genre, index]));
+  return [...new Set(genres)].sort((a, b) => {
+    if (a === "その他") return b === "その他" ? 0 : 1;
+    if (b === "その他") return -1;
+    return (order.get(a) ?? MOVIE_GENRE_ORDER.length - 1) - (order.get(b) ?? MOVIE_GENRE_ORDER.length - 1);
+  });
 }
 
 function theaterKey(value: string): string {
@@ -433,7 +444,7 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
               className="border-b border-white/8 px-1 py-2 odd:border-r last:border-b-0 [&:nth-last-child(2)]:border-b-0"
             >
               <dt className="text-[10px] text-gray-500">{metric.label}</dt>
-              <dd className="mt-0.5 text-xs font-semibold text-gray-100">
+              <dd className={`mt-0.5 text-xs font-semibold text-gray-100 ${metric.label === "メインキャスト" ? "whitespace-pre-line leading-relaxed" : ""}`}>
                 {metric.value}
               </dd>
             </div>
@@ -578,7 +589,8 @@ export default function TopicDashboard({
     const additional = [...discovered].filter(
       (genre) => !MOVIE_GENRE_ORDER.includes(genre as typeof MOVIE_GENRE_ORDER[number]),
     );
-    return [...MOVIE_GENRE_ORDER, ...additional];
+    const knownWithoutOther = MOVIE_GENRE_ORDER.filter((genre) => genre !== "その他");
+    return [...knownWithoutOther, ...additional.filter((genre) => genre !== "その他"), "その他"];
   }, [items]);
   const regions = useMemo(
     () => [...new Set(items.map((item) => item.region))],
