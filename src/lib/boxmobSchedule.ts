@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Bout, BoxingEvent } from "@/types";
+import { infoFromAffiliation } from "@/lib/fighterInfo";
 import { organizationsFromText } from "@/lib/organizations";
 
 const SCHEDULE_URL = "https://boxmob.jp/sp/schedule.html";
@@ -138,16 +139,30 @@ function normalizeWeightClass(headline: string): string {
     .replace(/\s+/g, "");
 }
 
-function boxerNames(section: string): string[] {
-  const names = [...section.matchAll(
+interface BoxerProfile {
+  name: string;
+  affiliation?: string;
+}
+
+function boxerProfiles(section: string): BoxerProfile[] {
+  const matches = [...section.matchAll(
     /bmsm_boookies__item-big__boxer-profile-name[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/gi,
-  )]
-    .map((match) => plainText(match[1]))
-    .filter(Boolean);
-  if (names.length >= 2) return names.slice(0, 2);
+  )];
+  if (matches.length >= 2) {
+    return matches.slice(0, 2).map((match, index) => {
+      const start = match.index ?? 0;
+      const end = matches[index + 1]?.index ?? section.length;
+      const profileText = plainText(section.slice(start, end)).normalize("NFKC");
+      const affiliation = profileText.match(/\(\s*\d+\s*=\s*([^()]+?)\s*\)/)?.[1];
+      return {
+        name: plainText(match[1]),
+        affiliation: affiliation?.trim(),
+      };
+    });
+  }
 
   return [...section.matchAll(/<img class="boxer"[^>]*alt="([^"]+)"/gi)]
-    .map((match) => plainText(match[1]))
+    .map((match) => ({ name: plainText(match[1]) }))
     .filter(Boolean)
     .slice(0, 2);
 }
@@ -159,14 +174,20 @@ function parseBouts(html: string, eventId: string): Bout[] {
       /<div class="match_headline">([\s\S]*?)<\/div>/i,
     );
     if (!headlineMatch) return [];
-    const names = boxerNames(section);
-    if (names.length < 2) return [];
+    const profiles = boxerProfiles(section);
+    if (profiles.length < 2) return [];
 
     const headline = plainText(headlineMatch[1]);
+    const jpInfo = infoFromAffiliation(profiles[0].affiliation);
+    const opponentInfo = infoFromAffiliation(profiles[1].affiliation);
     return [{
       id: `${eventId}-b${index + 1}`,
-      jpFighter: names[0],
-      opponent: names[1],
+      jpFighter: profiles[0].name,
+      jpFighterGym: jpInfo.gym,
+      jpFighterCountry: jpInfo.country,
+      opponent: profiles[1].name,
+      opponentCountry: opponentInfo.country,
+      opponentGym: opponentInfo.gym,
       weightClass: normalizeWeightClass(headline),
       organizations: organizationsFromText(headline),
       result: "scheduled" as const,

@@ -11,12 +11,18 @@ export interface Bout {
   id: string;
   /** 日本ジム所属選手 */
   jpFighter: string;
+  /** 日本側選手の所属ジム（取得できる場合） */
+  jpFighterGym?: string;
+  /** 左側選手の国・地域（海外カードなどで取得できる場合） */
+  jpFighterCountry?: string;
   /** 日本側選手の戦績（任意） */
   jpRecord?: string;
   /** 対戦相手 */
   opponent: string;
   /** 対戦相手の国・地域（任意） */
   opponentCountry?: string;
+  /** 対戦相手が日本人の場合の所属ジム（取得できる場合） */
+  opponentGym?: string;
   /** 階級 */
   weightClass: string;
   /** 懸かるタイトルの団体 */

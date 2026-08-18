@@ -1,7 +1,7 @@
 import "server-only";
 
 import { unstable_cache } from "next/cache";
-import { events as fallbackEvents } from "@/data/events";
+import { events as curatedEvents } from "@/data/events";
 import { majorBoxingEvents } from "@/data/majorBoxingEvents";
 import {
   fetchBoxmobHistoryCards,
@@ -48,9 +48,17 @@ interface JbcPost {
 
 export interface BoxingFeed {
   events: BoxingEvent[];
-  mode: "live" | "fallback";
+  mode: "live";
   sourceName: string;
   updatedAt?: string;
+  warning?: string;
+}
+
+export class BoxingFeedError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "BoxingFeedError";
+  }
 }
 
 function decodeHtml(value: string): string {
@@ -244,10 +252,7 @@ function latestUpdate(events: BoxingEvent[]): string | undefined {
 
 async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   const [boxmobSchedule, scheduledPosts, finishedPosts] = await Promise.all([
-    fetchBoxmobSchedule().catch((error) => {
-      console.warn("Unable to load Boxing Mobile schedule", error);
-      return [];
-    }),
+    fetchBoxmobSchedule(),
     fetchScheduledPosts(),
     fetchFinishedHistory(),
   ]);
@@ -295,7 +300,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v17-base-priority-series-cards"],
+  ["signal-board-boxing-feed-v20-base-fighter-annotations"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -310,7 +315,7 @@ const getCachedEnrichedLiveBoxingFeed = unstable_cache(
       events: await enrichEventsWithResults(baseFeed.events),
     };
   },
-  ["signal-board-boxing-feed-v17-enriched-priority-series-cards"],
+  ["signal-board-boxing-feed-v20-enriched-fighter-annotations"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -331,12 +336,10 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
     ]);
   } catch (error) {
     console.error("Unable to load JBC boxing feed", error);
-    const today = tokyoDate(new Date());
-    return {
-      events: mergeMajorEvents(fallbackEvents, today),
-      mode: "fallback",
-      sourceName: "公式シリーズ情報 / ローカル保存データ",
-    };
+    throw new BoxingFeedError(
+      "ボクシングモバイルとJBCから最新データを取得できませんでした。保存済みデータへのフォールバックは行っていません。時間を置いて再試行してください。",
+      { cause: error },
+    );
   }
 
   try {
@@ -350,8 +353,12 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
       }),
     ]);
   } catch (error) {
-    console.warn("Using the base boxing feed while card enrichment continues", error);
-    return baseFeed;
+    console.error("Unable to enrich JBC boxing feed", error);
+    return {
+      ...baseFeed,
+      warning:
+        "対戦カード・試合結果の追加取得が完了しなかったため、取得済みの最新データのみ表示しています。",
+    };
   }
 }
 function normalizeVenue(value: string): string {
@@ -565,7 +572,7 @@ async function loadBoxmobCardSets(
 function mergeStoredBouts(events: BoxingEvent[]): BoxingEvent[] {
   return events.map((event) => {
     if (event.bouts.length > 0) return event;
-    const matches = fallbackEvents.filter(
+    const matches = curatedEvents.filter(
       (stored) =>
         stored.date === event.date && sameVenue(stored.venue, event.venue),
     );
@@ -647,6 +654,10 @@ function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bou
     return result
       ? {
           ...card,
+          jpFighterGym: card.jpFighterGym ?? result.jpFighterGym,
+          jpFighterCountry: card.jpFighterCountry ?? result.jpFighterCountry,
+          opponentCountry: card.opponentCountry ?? result.opponentCountry,
+          opponentGym: card.opponentGym ?? result.opponentGym,
           result: result.result,
           method: result.method,
         }

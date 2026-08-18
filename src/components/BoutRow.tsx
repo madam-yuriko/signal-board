@@ -1,10 +1,19 @@
 import { Star } from "lucide-react";
 import type { Bout } from "@/types";
 import OrgBadge from "@/components/OrgBadge";
+import { fighterAnnotation } from "@/lib/fighterInfo";
 
 export default function BoutRow({ bout }: { bout: Bout }) {
   const jpFighterWon = bout.result === "win";
   const opponentWon = bout.result === "loss";
+  const jpAnnotation = fighterAnnotation(bout.jpFighter, {
+    country: bout.jpFighterCountry,
+    gym: bout.jpFighterGym,
+  });
+  const opponentAnnotation = fighterAnnotation(bout.opponent, {
+    country: bout.opponentCountry,
+    gym: bout.opponentGym,
+  });
 
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-white/5 bg-black/20 p-2.5 sm:flex-row sm:items-center sm:justify-between">
@@ -25,6 +34,11 @@ export default function BoutRow({ bout }: { bout: Bout }) {
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
           <span className={jpFighterWon ? "font-bold text-white" : "text-gray-300"}>
             {bout.jpFighter}
+            {jpAnnotation && (
+              <span className="ml-1 text-[11px] text-gray-500">
+                ({jpAnnotation})
+              </span>
+            )}
           </span>
           {jpFighterWon && (
             <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
@@ -36,9 +50,9 @@ export default function BoutRow({ bout }: { bout: Bout }) {
             className={opponentWon ? "font-bold text-white" : "text-gray-300"}
           >
             {bout.opponent}
-            {bout.opponentCountry && (
+            {opponentAnnotation && (
               <span className="ml-1 text-[11px] text-gray-500">
-                ({bout.opponentCountry})
+                ({opponentAnnotation})
               </span>
             )}
           </span>

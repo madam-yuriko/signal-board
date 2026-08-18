@@ -27,9 +27,9 @@ import EntityPicker from "@/components/EntityPicker";
 
 interface Props {
   events: BoxingEvent[];
-  feedMode: "live" | "fallback";
   sourceName: string;
   updatedAt?: string;
+  warning?: string;
 }
 
 function formatUpdatedAt(value?: string): string | undefined {
@@ -45,9 +45,9 @@ function formatUpdatedAt(value?: string): string | undefined {
 
 export default function BoxingDashboard({
   events,
-  feedMode,
   sourceName,
   updatedAt,
+  warning,
 }: Props) {
   const [filters, setFilters] =
     useState<EventFilters>(EMPTY_EVENT_FILTERS);
@@ -122,15 +122,13 @@ export default function BoxingDashboard({
         </div>
         <div
           className={`shrink-0 rounded-md border px-2 py-1 text-right text-[10px] font-semibold ${
-            feedMode === "live"
-              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-              : "border-amber-400/20 bg-amber-400/10 text-amber-300"
+            "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
           }`}
           title={sourceName}
         >
           <span className="flex items-center justify-end gap-1">
             <Database className="h-3 w-3" />
-            {feedMode === "live" ? "ボクモバ + JBC" : "公式 + 保存データ"}
+            ボクモバ + JBC
           </span>
           {updatedLabel && (
             <span className="mt-0.5 block font-normal opacity-70">
@@ -140,9 +138,9 @@ export default function BoxingDashboard({
         </div>
       </section>
 
-      {feedMode === "fallback" && (
+      {warning && (
         <div className="rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-          ボクシングモバイルとJBCに接続できないため、公式シリーズ台帳と保存済みデータを表示しています。
+          {warning}
         </div>
       )}
 

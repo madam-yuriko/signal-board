@@ -8,9 +8,9 @@ export default async function BoxingPage() {
   return (
     <BoxingDashboard
       events={feed.events}
-      feedMode={feed.mode}
       sourceName={feed.sourceName}
       updatedAt={feed.updatedAt}
+      warning={feed.warning}
     />
   );
 }

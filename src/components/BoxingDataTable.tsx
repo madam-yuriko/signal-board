@@ -5,6 +5,7 @@ import type { BoutWithEvent } from "@/lib/filters";
 import { formatShortDate, isEventUpcoming } from "@/lib/format";
 import DataTable, { type DataTableColumn } from "@/components/DataTable";
 import OrgBadge from "@/components/OrgBadge";
+import { fighterAnnotation } from "@/lib/fighterInfo";
 
 export type BoxingTableView = "events" | "bouts" | "world" | "fighter";
 
@@ -72,6 +73,23 @@ function resultBadge(result: BoutResult) {
     <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-bold ${styles[result]}`}>
       {labels[result]}
     </span>
+  );
+}
+
+function fighterLabel(
+  name: string,
+  info: { country?: string; gym?: string } = {},
+) {
+  const annotation = fighterAnnotation(name, info);
+  return (
+    <>
+      {name}
+      {annotation && (
+        <span className="ml-1 text-[10px] text-gray-500">
+          ({annotation})
+        </span>
+      )}
+    </>
   );
 }
 
@@ -159,7 +177,15 @@ function boutColumns(
           id: "opponent",
           label: "対戦相手",
           render: (bout) =>
-            bout.jpFighter === selectedFighter ? bout.opponent : bout.jpFighter,
+            bout.jpFighter === selectedFighter
+              ? fighterLabel(bout.opponent, {
+                  country: bout.opponentCountry,
+                  gym: bout.opponentGym,
+                })
+              : fighterLabel(bout.jpFighter, {
+                  country: bout.jpFighterCountry,
+                  gym: bout.jpFighterGym,
+                }),
           sortValue: (bout) =>
             bout.jpFighter === selectedFighter ? bout.opponent : bout.jpFighter,
           className: "min-w-32 font-semibold text-white",
@@ -169,9 +195,19 @@ function boutColumns(
           label: "対戦カード",
           render: (bout) => (
             <div className="min-w-44">
-              <span className="font-semibold text-white">{bout.jpFighter}</span>
+              <span className="font-semibold text-white">
+                {fighterLabel(bout.jpFighter, {
+                  country: bout.jpFighterCountry,
+                  gym: bout.jpFighterGym,
+                })}
+              </span>
               <span className="mx-1.5 text-gray-600">vs</span>
-              <span>{bout.opponent}</span>
+              <span>
+                {fighterLabel(bout.opponent, {
+                  country: bout.opponentCountry,
+                  gym: bout.opponentGym,
+                })}
+              </span>
             </div>
           ),
           sortValue: (bout) => `${bout.jpFighter} ${bout.opponent}`,

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Calendar, ChevronDown, ExternalLink, MapPin, Plane } from "lucide-react";
 import type { BoxingEvent } from "@/types";
-import { formatDate, isEventUpcoming } from "@/lib/format";
+import { formatDate, isEventUpcoming, isUpcoming } from "@/lib/format";
 import { eventImageUrl } from "@/lib/eventImage";
 import BoutRow from "@/components/BoutRow";
 import EventImage from "@/components/EventImage";
@@ -9,6 +9,7 @@ import EventImage from "@/components/EventImage";
 export default function EventCard({ event }: { event: BoxingEvent }) {
   const [expanded, setExpanded] = useState(false);
   const upcoming = isEventUpcoming(event);
+  const titleIsUpcoming = isUpcoming(event.date);
   const officialUrl = event.detailsUrl ?? event.sourceUrl;
   const orderedBouts = [
     ...event.bouts.filter((bout) => bout.isMainEvent),
@@ -20,7 +21,11 @@ export default function EventCard({ event }: { event: BoxingEvent }) {
   return (
     <article className="glass-card group overflow-hidden rounded-lg">
       <div className="p-3 pb-2.5">
-        <h2 className="text-xl font-bold leading-tight text-white sm:text-2xl">
+        <h2
+          className={`text-xl font-bold leading-tight sm:text-2xl ${
+            titleIsUpcoming ? "text-yellow-300" : "text-white"
+          }`}
+        >
           {event.name}
         </h2>
 
