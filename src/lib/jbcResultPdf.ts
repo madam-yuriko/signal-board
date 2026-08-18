@@ -1,5 +1,5 @@
-import type { Bout, Organization } from "@/types";
-import { ORGANIZATIONS } from "@/types";
+import type { Bout } from "@/types";
+import { organizationsFromText } from "@/lib/organizations";
 
 const REVALIDATE_SECONDS = 60 * 60 * 6;
 const RESULT_PATTERN = /(?:TKO|KO|RTD|判定|負傷|棄権|失格|引分|ドロー|無効|NC)/i;
@@ -116,13 +116,6 @@ function weightClass(items: PositionedText[], markerY: number): string {
   return raw || "契約階級";
 }
 
-function organizations(items: PositionedText[]): Organization[] {
-  const rowText = items.map((item) => item.text).join(" ").toUpperCase();
-  return ORGANIZATIONS.filter((organization) =>
-    rowText.includes(organization),
-  );
-}
-
 function parsePage(items: PositionedText[], eventId: string, page: number): Bout[] {
   const markers = items
     .filter(
@@ -172,7 +165,7 @@ function parsePage(items: PositionedText[], eventId: string, page: number): Bout
         jpFighter: redName,
         opponent: blueName,
         weightClass: weightClass(row, marker.y),
-        organizations: organizations(row),
+        organizations: organizationsFromText(row.map((item) => item.text).join(" ")),
         result: redWon ? "win" : blueWon ? "loss" : "draw",
         method: method ?? (redWon || blueWon ? "勝利" : "引分"),
       },

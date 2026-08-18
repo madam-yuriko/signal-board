@@ -31,14 +31,17 @@ function normalize(value: string): string {
     .replace(/[\s・·,.、。\-ー]/g, "");
 }
 
-async function fetchHtml(url: string): Promise<string> {
+async function fetchHtml(url: string, signal?: AbortSignal): Promise<string> {
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+    : AbortSignal.timeout(10_000);
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "User-Agent": "SignalBoard/1.0 (+public movie theater availability reader)",
     },
     next: { revalidate: 60 * 60 * 6 },
-    signal: AbortSignal.timeout(10_000),
+    signal: requestSignal,
   });
   if (!response.ok) throw new Error(`映画.com returned ${response.status}`);
   return response.text();
@@ -116,13 +119,20 @@ const getCachedTheaterOptions = unstable_cache(
   { revalidate: 60 * 60 * 6, tags: ["movie-theater-options"] },
 );
 
-async function resolveTheater(name: string): Promise<TheaterCandidate | undefined> {
+async function resolveTheater(
+  name: string,
+  signal: AbortSignal,
+): Promise<TheaterCandidate | undefined> {
   const query = name.trim();
   if (!query) return undefined;
   const target = normalize(query);
   const searchQueries = [...new Set([query, query.replace(/トーホー/g, "TOHO")])];
   for (const searchQuery of searchQueries) {
-    const html = await fetchHtml(`${EIGA_ORIGIN}/search/?c=theater&t=${encodeURIComponent(searchQuery)}`);
+    if (signal.aborted) throw signal.reason;
+    const html = await fetchHtml(
+      `${EIGA_ORIGIN}/search/?c=theater&t=${encodeURIComponent(searchQuery)}`,
+      signal,
+    );
     const candidates = theaterCandidates(html);
     if (candidates.length === 0) continue;
     return candidates.find((candidate) => normalize(candidate.name) === target) ?? candidates[0];
@@ -133,27 +143,34 @@ async function resolveTheater(name: string): Promise<TheaterCandidate | undefine
 async function checkAvailability(
   movieId: string,
   theater: TheaterCandidate,
+  signal: AbortSignal,
 ): Promise<boolean> {
   const [, , prefecture, area, theaterId] = theater.path.split("/");
   if (!prefecture || !area || !theaterId) return false;
   try {
     const html = await fetchHtml(
       `${EIGA_ORIGIN}/movie-area/${movieId}/${prefecture}/${area}/`,
+      signal,
     );
     const theaterLink = new RegExp(
       `\\/theater\\/${prefecture}\\/${area}\\/${theaterId}\\/`,
     );
     return theaterLink.test(html) && /\b\d{1,2}:\d{2}\b/.test(decodeHtml(html));
-  } catch {
+  } catch (error) {
+    if (signal.aborted) throw error;
     return false;
   }
 }
 
-async function findTokyoSuggestions(movieId: string): Promise<TheaterCandidate[]> {
+async function findTokyoSuggestions(
+  movieId: string,
+  signal: AbortSignal,
+): Promise<TheaterCandidate[]> {
   try {
-    const html = await fetchHtml(`${EIGA_ORIGIN}/movie-pref/${movieId}/13/`);
+    const html = await fetchHtml(`${EIGA_ORIGIN}/movie-pref/${movieId}/13/`, signal);
     return movieTheaterCandidates(html).slice(0, 3);
-  } catch {
+  } catch (error) {
+    if (signal.aborted) throw error;
     return [];
   }
 }
@@ -180,18 +197,33 @@ export async function GET(request: Request) {
     return NextResponse.json({ theaters: [] }, { status: 400 });
   }
 
-  const resolved = (await Promise.all(names.map(async (name) => {
-    try {
-      const theater = await resolveTheater(name);
-      if (!theater) return { name, available: false };
-      return { name: theater.name, available: await checkAvailability(movieId, theater) };
-    } catch {
-      return { name, available: false };
-    }
-  }))).filter((theater) => theater.available);
+  try {
+    const resolved = (await Promise.all(names.map(async (name) => {
+      try {
+        const theater = await resolveTheater(name, request.signal);
+        if (!theater) return { name, available: false };
+        return {
+          name: theater.name,
+          available: await checkAvailability(movieId, theater, request.signal),
+        };
+      } catch (error) {
+        if (request.signal.aborted) throw error;
+        return { name, available: false };
+      }
+    }))).filter((theater) => theater.available);
 
-  const suggestions = resolved.length === 0
-    ? (await findTokyoSuggestions(movieId)).map((theater) => ({ name: theater.name, available: true }))
-    : [];
-  return NextResponse.json({ theaters: resolved, suggestions });
+    const suggestions = resolved.length === 0
+      ? (await findTokyoSuggestions(movieId, request.signal)).map((theater) => ({
+          name: theater.name,
+          available: true,
+        }))
+      : [];
+    return NextResponse.json({ theaters: resolved, suggestions });
+  } catch (error) {
+    if (request.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
+    console.warn(`Unable to load theater availability for movie ${movieId}`, error);
+    return NextResponse.json({ theaters: [], suggestions: [] }, { status: 502 });
+  }
 }

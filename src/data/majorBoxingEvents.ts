@@ -10,6 +10,7 @@ const LEMINO_HISTORY =
   "https://lemino.docomo.ne.jp/leminonews/articles/naoya-inoue-archived-broadcast";
 const UNEXT_HISTORY =
   "https://www.unext.co.jp/ja/press-room/unext-boxing-2-2024-01-27";
+const DYNAMIC_GLOVE_HISTORY = "https://dynamicglove.com/";
 const FIGHT_3150_HISTORY = "https://www.3150fight.com/result/";
 const TREASURE_HISTORY = "https://tb-promotion.com/archives/";
 
@@ -57,7 +58,7 @@ export const majorBoxingEvents: MajorEvent[] = [
   event("prime-10-1", "2024-10-13", "Prime Video Boxing 10 DAY 1", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-10-2", "2024-10-14", "Prime Video Boxing 10 DAY 2", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-11", "2025-02-24", "Prime Video Boxing 11", "Prime Video Boxing", "有明アリーナ", "東京", "Prime Video", PRIME_HISTORY, true, "7429"),
-  event("prime-12", "2025-05-04", "Prime Video Boxing 12", "Prime Video Boxing", "T-モバイル・アリーナ", "ラスベガス", "Prime Video", PRIME_HISTORY, false),
+  event("prime-12", "2025-05-04", "Prime Video Boxing 12 in Las Vegas", "Prime Video Boxing", "T-モバイル・アリーナ", "ラスベガス", "Prime Video", PRIME_HISTORY, false),
   event("prime-13", "2025-06-08", "Prime Video Boxing 13", "Prime Video Boxing", "有明コロシアム", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-14", "2025-11-24", "Prime Video Boxing 14", "Prime Video Boxing", "TOYOTA ARENA TOKYO", "東京", "Prime Video", PRIME_HISTORY),
   event("prime-15", "2026-04-11", "Prime Video Boxing 15", "Prime Video Boxing", "両国国技館", "東京", "Prime Video", "https://www.aboutamazon.jp/news/entertainment/prime-video-boxing-15"),
@@ -72,6 +73,14 @@ export const majorBoxingEvents: MajorEvent[] = [
   event("lemino-20250914", "2025-09-14", "Lemino BOXING トリプル世界タイトルマッチ", "Lemino Boxing", "IGアリーナ", "愛知", "Lemino", "https://lemino.docomo.ne.jp/leminonews/articles/naoya-inoue-dna-t-shirt-furusato-tax"),
   event("lemino-20260502", "2026-05-02", "Lemino BOXING ダブル世界タイトルマッチ", "Lemino Boxing", "東京ドーム", "東京", "Lemino", "https://lemino.docomo.ne.jp/leminonews/articles/0502-double-world-title-match-matchup-lineup"),
   event("lemino-20260902", "2026-09-02", "Lemino BOXING ダブル世界タイトルマッチ", "Lemino Boxing", "横浜BUNTAI", "横浜", "Lemino", "https://lemino.docomo.ne.jp/ft/0000002/"),
+
+  // DYNAMIC GLOVE on U-NEXT（公式シリーズ／ボクシングモバイル履歴）
+  event("dynamic-glove-41", "2026-03-07", "DYNAMIC GLOVE on U-NEXT 41[WBO-AP][OPBF]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
+  event("dynamic-glove-42", "2026-04-04", "DYNAMIC GLOVE on U-NEXT 42[WBO-AP]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
+  event("dynamic-glove-43", "2026-05-06", "DYNAMIC GLOVE on U-NEXT 43[WBO-AP]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
+  event("dynamic-glove-44", "2026-06-06", "DYNAMIC GLOVE on U-NEXT 44[WBO-AP]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
+  event("dynamic-glove-45", "2026-07-04", "DYNAMIC GLOVE on U-NEXT 45[OPBF]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
+  event("dynamic-glove-46", "2026-08-01", "DYNAMIC GLOVE on U-NEXT 46[日本][OPBF]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
 
   // U-NEXT BOXING（番号シリーズ）
   event("unext-01", "2024-12-15", "U-NEXT BOXING", "U-NEXT Boxing", "住吉スポーツセンター", "大阪", "U-NEXT", UNEXT_HISTORY),

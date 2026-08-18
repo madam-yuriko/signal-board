@@ -29,12 +29,10 @@ export default function EventFilterBar({
 }: Props) {
   const filterCount = activeEventFilterCount(filters);
 
-  function toggleSeries(value: string) {
+  function selectSeries(value?: string) {
     onChange({
       ...filters,
-      series: filters.series.includes(value)
-        ? filters.series.filter((item) => item !== value)
-        : [...filters.series, value],
+      series: value ? [value] : [],
     });
   }
 
@@ -66,17 +64,30 @@ export default function EventFilterBar({
         )}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+      <div className="space-y-3">
         <div>
           <div className="mb-1 text-[10px] font-semibold text-gray-500">
             興行シリーズ
           </div>
           <div className="flex flex-wrap gap-1">
+            <button
+              type="button"
+              aria-pressed={filters.series.length === 0}
+              onClick={() => selectSeries()}
+              className={`rounded-md border px-2 py-1 text-[11px] ${
+                filters.series.length === 0
+                  ? "border-white/25 bg-white/10 text-white"
+                  : "border-white/8 text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              すべて
+            </button>
             {series.map((item) => (
               <button
                 key={item}
                 type="button"
-                onClick={() => toggleSeries(item)}
+                aria-pressed={filters.series.includes(item)}
+                onClick={() => selectSeries(item)}
                 className={`rounded-md border px-2 py-1 text-[11px] ${
                   filters.series.includes(item)
                     ? "border-red-400/40 bg-red-400/10 text-red-200"
@@ -89,41 +100,46 @@ export default function EventFilterBar({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <div className="mb-1 text-[10px] font-semibold text-gray-500">
-              状態
-            </div>
-            <div className="flex gap-1">
-              {STATUS_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() =>
-                    onChange({ ...filters, status: option.value })
-                  }
-                  className={`rounded-md border px-2 py-1 text-[11px] ${
-                    filters.status === option.value
-                      ? "border-white/25 bg-white/10 text-white"
-                      : "border-white/8 text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+        <div>
+          <div className="mb-1 text-[10px] font-semibold text-gray-500">
+            状態
           </div>
-          <label className="flex cursor-pointer items-center gap-1.5 py-1 text-[11px] text-gray-400">
-            <input
-              type="checkbox"
-              checked={filters.domesticOnly}
-              onChange={(event) =>
-                onChange({ ...filters, domesticOnly: event.target.checked })
+          <div className="flex flex-wrap gap-1">
+            {STATUS_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={filters.status === option.value}
+                onClick={() =>
+                  onChange({ ...filters, status: option.value })
+                }
+                className={`rounded-md border px-2 py-1 text-[11px] ${
+                  filters.status === option.value
+                    ? "border-white/25 bg-white/10 text-white"
+                    : "border-white/8 text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-pressed={filters.domesticOnly}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  domesticOnly: !filters.domesticOnly,
+                })
               }
-              className="h-3.5 w-3.5 accent-red-500"
-            />
-            国内開催のみ
-          </label>
+              className={`rounded-md border px-2 py-1 text-[11px] ${
+                filters.domesticOnly
+                  ? "border-white/25 bg-white/10 text-white"
+                  : "border-white/8 text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              国内開催のみ
+            </button>
+          </div>
         </div>
       </div>
     </section>

@@ -471,9 +471,9 @@ export const events: BoxingEvent[] = [
   },
   {
     id: "e-20250505-lasvegas",
-    date: "2025-05-05",
-    name: "Top Rank Boxing",
-    series: "Top Rank Boxing",
+    date: "2025-05-04",
+    name: "Prime Video Boxing 12 in Las Vegas",
+    series: "Prime Video Boxing",
     venue: "T-モバイル・アリーナ",
     city: "ラスベガス（米国）",
     domestic: false,

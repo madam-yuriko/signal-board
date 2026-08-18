@@ -15,6 +15,13 @@ const JBC_API = "https://jbc.or.jp/wp-json/wp/v2/posts";
 const JBC_SCHEDULED_CATEGORY = 5;
 const JBC_FINISHED_CATEGORY = 6;
 const REVALIDATE_SECONDS = 60 * 60 * 6;
+const LIVE_FEED_TIMEOUT_MS = 15_000;
+const ENRICHED_FEED_TIMEOUT_MS = 5_000;
+const JBC_RESULT_WAIT_MS = 1_500;
+const MAX_JBC_RESULT_EVENTS = 24;
+const MAX_HISTORY_CARD_DATES = 48;
+const PRIORITY_CARD_DATES = 32;
+const PRIORITY_CARD_SERIES = new Set(["Dynamic Glove", "Prime Video Boxing"]);
 const HISTORY_START = "2021-01-01T00:00:00";
 const MAX_HISTORY_PAGES = 10;
 
@@ -235,7 +242,7 @@ function latestUpdate(events: BoxingEvent[]): string | undefined {
     .sort((a, b) => b.localeCompare(a))[0];
 }
 
-async function buildLiveBoxingFeed(): Promise<BoxingFeed> {
+async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   const [boxmobSchedule, scheduledPosts, finishedPosts] = await Promise.all([
     fetchBoxmobSchedule().catch((error) => {
       console.warn("Unable to load Boxing Mobile schedule", error);
@@ -271,21 +278,39 @@ async function buildLiveBoxingFeed(): Promise<BoxingFeed> {
       event.date >= recentCutoff ||
       MAJOR_SERIES.has(event.series ?? ""),
   );
-  const eventsWithResults = await enrichEventsWithResults(uniqueEvents);
-
+  const storedEvents = mergeStoredBouts(uniqueEvents);
+  const priorityCardSets = await loadBoxmobCardSets(
+    storedEvents,
+    PRIORITY_CARD_DATES,
+  );
   return {
-    events: eventsWithResults,
+    events: mergeBoxmobCards(storedEvents, priorityCardSets),
     mode: "live",
     sourceName: boxmobSchedule.length > 0
       ? "ボクシングモバイル予定 / JBC結果"
       : "JBC予定・結果 / 公式シリーズ情報",
-    updatedAt: latestUpdate(eventsWithResults),
+    updatedAt: latestUpdate(uniqueEvents),
   };
 }
 
-const getCachedLiveBoxingFeed = unstable_cache(
-  buildLiveBoxingFeed,
-  ["signal-board-boxing-feed-v6-split-dynamic-glove"],
+const getCachedBaseLiveBoxingFeed = unstable_cache(
+  buildBaseLiveBoxingFeed,
+  ["signal-board-boxing-feed-v17-base-priority-series-cards"],
+  {
+    revalidate: REVALIDATE_SECONDS,
+    tags: ["boxing-feed"],
+  },
+);
+
+const getCachedEnrichedLiveBoxingFeed = unstable_cache(
+  async (): Promise<BoxingFeed> => {
+    const baseFeed = await getCachedBaseLiveBoxingFeed();
+    return {
+      ...baseFeed,
+      events: await enrichEventsWithResults(baseFeed.events),
+    };
+  },
+  ["signal-board-boxing-feed-v17-enriched-priority-series-cards"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -293,8 +318,17 @@ const getCachedLiveBoxingFeed = unstable_cache(
 );
 
 export async function getBoxingFeed(): Promise<BoxingFeed> {
+  let baseFeed: BoxingFeed;
   try {
-    return await getCachedLiveBoxingFeed();
+    baseFeed = await Promise.race([
+      getCachedBaseLiveBoxingFeed(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("Boxing feed request timed out")),
+          LIVE_FEED_TIMEOUT_MS,
+        );
+      }),
+    ]);
   } catch (error) {
     console.error("Unable to load JBC boxing feed", error);
     const today = tokyoDate(new Date());
@@ -303,6 +337,21 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
       mode: "fallback",
       sourceName: "公式シリーズ情報 / ローカル保存データ",
     };
+  }
+
+  try {
+    return await Promise.race([
+      getCachedEnrichedLiveBoxingFeed(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("Boxing card enrichment timed out")),
+          ENRICHED_FEED_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    console.warn("Using the base boxing feed while card enrichment continues", error);
+    return baseFeed;
   }
 }
 function normalizeVenue(value: string): string {
@@ -352,6 +401,8 @@ function mergeMajorEvents(
       merged[existingIndex] = {
         ...curated,
         ...jbcEvent,
+        name: curated.name,
+        series: curated.series,
         image: jbcEvent.image ?? curated.image,
       };
       continue;
@@ -379,57 +430,27 @@ function mergeMajorEvents(
 async function enrichEventsWithResults(
   events: BoxingEvent[],
 ): Promise<BoxingEvent[]> {
-  const enriched = events.map((event) => ({ ...event }));
-  const targets = enriched
-    .map((event, index) => ({ event, index }))
-    .filter(
-      ({ event }) =>
-        event.status === "finished" &&
-        Boolean(event.detailsUrl?.toLowerCase().includes(".pdf")),
-    );
-  let cursor = 0;
+  const baseEvents = mergeStoredBouts(events);
+  const [withJbcResults, cardSets] = await Promise.all([
+    Promise.race([
+      enrichEventsWithJbcResults(baseEvents),
+      new Promise<BoxingEvent[]>((resolve) => {
+        setTimeout(() => resolve(baseEvents), JBC_RESULT_WAIT_MS);
+      }),
+    ]),
+    loadBoxmobCardSets(baseEvents),
+  ]);
 
-  await Promise.all(
-    Array.from({ length: Math.min(8, targets.length) }, async () => {
-      while (cursor < targets.length) {
-        const target = targets[cursor];
-        cursor += 1;
-        try {
-          const bouts = await parseJbcResultPdf(
-            target.event.detailsUrl!,
-            target.event.id,
-          );
-          if (bouts.length > 0) {
-            enriched[target.index] = { ...target.event, bouts };
-          }
-        } catch (error) {
-          console.warn(
-            `Unable to parse JBC result PDF for ${target.event.id}`,
-            error,
-          );
-        }
-      }
-    }),
-  );
+  return mergeBoxmobCards(withJbcResults, cardSets);
+}
 
-  const boxmobTargets = enriched.filter(
-    (event) =>
-      event.status === "finished" &&
-      !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html"),
-  );
-  if (boxmobTargets.length === 0) return enriched;
+function mergeBoxmobCards(
+  events: BoxingEvent[],
+  cardSets: BoxmobCardSet[],
+): BoxingEvent[] {
+  if (cardSets.length === 0) return events;
 
-  let cardSets: BoxmobCardSet[] = [];
-  try {
-    cardSets = await fetchBoxmobHistoryCards(
-      [...new Set(boxmobTargets.map((event) => event.date))],
-    );
-  } catch (error) {
-    console.warn("Unable to load Boxing Mobile historical cards", error);
-    return enriched;
-  }
-
-  return enriched.map((event) => {
+  return events.map((event) => {
     if (
       event.status !== "finished" ||
       event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html")
@@ -445,6 +466,113 @@ async function enrichEventsWithResults(
       detailsUrl: cardSet.detailsUrl,
       sourceUpdatedAt: event.sourceUpdatedAt,
       bouts,
+    };
+  });
+}
+
+async function enrichEventsWithJbcResults(
+  events: BoxingEvent[],
+): Promise<BoxingEvent[]> {
+  const enriched = events.map((event) => ({ ...event }));
+  const targets = enriched
+    .map((event, index) => ({ event, index }))
+    .filter(
+      ({ event }) =>
+        event.status === "finished" &&
+        Boolean(event.detailsUrl?.toLowerCase().includes(".pdf")),
+    )
+    .sort((left, right) => right.event.date.localeCompare(left.event.date))
+    .slice(0, MAX_JBC_RESULT_EVENTS);
+  let cursor = 0;
+
+  await Promise.all(
+    Array.from({ length: Math.min(8, targets.length) }, async () => {
+      while (cursor < targets.length) {
+        const target = targets[cursor];
+        cursor += 1;
+        try {
+          const bouts = await parseJbcResultPdf(
+            target.event.detailsUrl!,
+            target.event.id,
+          );
+          if (bouts.length > 0) {
+            enriched[target.index] = {
+              ...target.event,
+              bouts: target.event.bouts.length > 0
+                ? mergeCardResults(target.event.bouts, bouts)
+                : bouts,
+            };
+          }
+        } catch (error) {
+          console.warn(
+            `Unable to parse JBC result PDF for ${target.event.id}`,
+            error,
+          );
+        }
+      }
+    }),
+  );
+
+  return enriched;
+}
+
+async function loadBoxmobCardSets(
+  events: BoxingEvent[],
+  maxDates = MAX_HISTORY_CARD_DATES,
+): Promise<BoxmobCardSet[]> {
+  const boxmobTargets = events.filter(
+    (event) =>
+      event.status === "finished" &&
+      !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html"),
+  );
+  if (boxmobTargets.length === 0) return [];
+
+  const priorityDates = [...new Set(
+    boxmobTargets
+      .filter((event) => PRIORITY_CARD_SERIES.has(event.series ?? ""))
+      .slice()
+      .sort((left, right) => right.date.localeCompare(left.date))
+      .map((event) => event.date),
+  )];
+  const latestDates = [...new Set(
+    boxmobTargets
+      .slice()
+      .sort((left, right) => right.date.localeCompare(left.date))
+      .map((event) => event.date),
+  )].slice(0, Math.floor(maxDates / 2));
+  const majorDates = [...new Set(
+    boxmobTargets
+      .filter((event) => MAJOR_SERIES.has(event.series ?? ""))
+      .slice()
+      .sort((left, right) => right.date.localeCompare(left.date))
+      .map((event) => event.date),
+  )].slice(0, Math.ceil(maxDates / 2));
+  const targetDates = [...new Set([...latestDates, ...majorDates])].slice(
+    0,
+    maxDates,
+  );
+  targetDates.unshift(...priorityDates.filter((date) => !targetDates.includes(date)));
+  targetDates.splice(maxDates);
+
+  try {
+    return await fetchBoxmobHistoryCards(targetDates);
+  } catch (error) {
+    console.warn("Unable to load Boxing Mobile historical cards", error);
+    return [];
+  }
+}
+
+function mergeStoredBouts(events: BoxingEvent[]): BoxingEvent[] {
+  return events.map((event) => {
+    if (event.bouts.length > 0) return event;
+    const matches = fallbackEvents.filter(
+      (stored) =>
+        stored.date === event.date && sameVenue(stored.venue, event.venue),
+    );
+    if (matches.length !== 1 || matches[0].bouts.length === 0) return event;
+    return {
+      ...event,
+      bouts: matches[0].bouts,
     };
   });
 }

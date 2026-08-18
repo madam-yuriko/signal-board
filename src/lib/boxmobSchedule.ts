@@ -1,7 +1,7 @@
 import "server-only";
 
-import type { Bout, BoxingEvent, Organization } from "@/types";
-import { ORGANIZATIONS } from "@/types";
+import type { Bout, BoxingEvent } from "@/types";
+import { organizationsFromText } from "@/lib/organizations";
 
 const SCHEDULE_URL = "https://boxmob.jp/sp/schedule.html";
 const DETAIL_URL = "https://boxmob.jp/sp/schedule/index.html";
@@ -121,13 +121,6 @@ function parseFlashList(html: string, year: number, month: number): ScheduleEntr
   return [...new Map(entries.map((entry) => [entry.sid, entry])).values()];
 }
 
-function organizations(text: string): Organization[] {
-  const normalized = text.toUpperCase();
-  return ORGANIZATIONS.filter((organization) =>
-    normalized.includes(organization),
-  );
-}
-
 function normalizeWeightClass(headline: string): string {
   const text = plainText(headline)
     .replace(/ライトミニマム/g, "ミニマム")
@@ -175,7 +168,7 @@ function parseBouts(html: string, eventId: string): Bout[] {
       jpFighter: names[0],
       opponent: names[1],
       weightClass: normalizeWeightClass(headline),
-      organizations: organizations(headline),
+      organizations: organizationsFromText(headline),
       result: "scheduled" as const,
       isMainEvent: index === 0,
       notes: headline,
@@ -229,15 +222,20 @@ function isDomesticVenue(venue: string): boolean {
 }
 
 function seriesForName(name: string): string {
-  if (/PHOENIX\s*BATTLE|フェニックスバトル/i.test(name)) return "Phoenix Battle";
-  if (/Lemino/i.test(name)) return "Lemino Boxing";
-  if (/Prime Video/i.test(name)) return "Prime Video Boxing";
-  if (/DYNAMIC\s*GLOVE/i.test(name)) return "Dynamic Glove";
-  if (/U-NEXT/i.test(name)) return "U-NEXT Boxing";
-  if (/TREASURE/i.test(name)) return "Treasure-Boxing";
-  if (/3150|KWORLD3/i.test(name)) return "3150 FIGHT";
-  if (/Lifetime/i.test(name)) return "Lifetime Boxing Fights";
-  return name.replace(/\[[^\]]+\]/g, "").trim();
+  const normalized = name.normalize("NFKC");
+  if (/PHOENIX\s*BATTLE|フェニックス[\s・･]*バトル/i.test(normalized)) {
+    return "Phoenix Battle";
+  }
+  if (/Lemino/i.test(normalized)) return "Lemino Boxing";
+  if (/Prime\s*Video/i.test(normalized)) return "Prime Video Boxing";
+  if (/DYNAMIC\s*GLOVE|ダイナミック[\s・･]*グローブ/i.test(normalized)) {
+    return "Dynamic Glove";
+  }
+  if (/U-?NEXT/i.test(normalized)) return "U-NEXT Boxing";
+  if (/TREASURE/i.test(normalized)) return "Treasure-Boxing";
+  if (/3150|KWORLD3/i.test(normalized)) return "3150 FIGHT";
+  if (/Lifetime/i.test(normalized)) return "Lifetime Boxing Fights";
+  return normalized.replace(/\[[^\]]+\]/g, "").trim();
 }
 
 async function loadEvent(

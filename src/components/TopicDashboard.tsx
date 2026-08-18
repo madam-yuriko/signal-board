@@ -21,6 +21,14 @@ import type {
   TopicStatusTone,
 } from "@/types/topics";
 import StatCards, { type Stat } from "@/components/StatCards";
+import DataViewToolbar, {
+  type DataViewMode,
+} from "@/components/DataViewToolbar";
+import TopicDataTable, {
+  movieCast,
+  type TopicTableView,
+} from "@/components/TopicDataTable";
+import EntityPicker from "@/components/EntityPicker";
 
 const TONE_STYLES: Record<TopicStatusTone, string> = {
   neutral: "border-white/15 bg-white/5 text-gray-300",
@@ -32,6 +40,7 @@ const TONE_STYLES: Record<TopicStatusTone, string> = {
 
 const MOVIE_TYPES: MovieType[] = ["邦画", "洋画", "アニメ/CG"];
 const MOVIE_INITIAL_VISIBLE_CARDS = 30;
+const NAVIGATION_START_EVENT = "signal-board:navigation-start";
 const MOVIE_THEATER_PREFECTURES = [
   ["01", "北海道"], ["02", "青森"], ["03", "岩手"], ["04", "宮城"], ["05", "秋田"],
   ["06", "山形"], ["07", "福島"], ["08", "茨城"], ["09", "栃木"], ["10", "群馬"],
@@ -295,13 +304,22 @@ function MovieTheaterAvailability({
     if (!sourceUrl || theaters.length === 0) return;
     let cancelled = false;
     let observer: IntersectionObserver | undefined;
+    const controller = new AbortController();
+    const abortForNavigation = () => {
+      cancelled = true;
+      controller.abort();
+    };
+    window.addEventListener("pagehide", abortForNavigation, { once: true });
+    window.addEventListener(NAVIGATION_START_EVENT, abortForNavigation, { once: true });
 
     const load = async () => {
       setState("loading");
       const params = new URLSearchParams({ movie: sourceUrl });
       theaters.forEach((theater) => params.append("theater", theater));
       try {
-        const response = await fetch(`/api/movie-theaters?${params.toString()}`);
+        const response = await fetch(`/api/movie-theaters?${params.toString()}`, {
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error("theater availability request failed");
         const result = (await response.json()) as {
           theaters?: Array<{ name: string; available: boolean }>;
@@ -311,7 +329,9 @@ function MovieTheaterAvailability({
         setAvailable((result.theaters ?? []).filter((theater) => theater.available).map((theater) => theater.name));
         setSuggestions((result.suggestions ?? []).filter((theater) => theater.available).map((theater) => theater.name).slice(0, 3));
         setState("ready");
-      } catch {
+      } catch (error) {
+        if (controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")) return;
         if (!cancelled) setState("error");
       }
     };
@@ -330,6 +350,9 @@ function MovieTheaterAvailability({
     return () => {
       cancelled = true;
       observer?.disconnect();
+      controller.abort();
+      window.removeEventListener("pagehide", abortForNavigation);
+      window.removeEventListener(NAVIGATION_START_EVENT, abortForNavigation);
     };
   }, [favoriteTheaterKey, sourceUrl]);
 
@@ -527,6 +550,9 @@ export default function TopicDashboard({
   const [theaterOptionValue, setTheaterOptionValue] = useState("");
   const [theaterOptionsLoading, setTheaterOptionsLoading] = useState(true);
   const [visibleMovieCount, setVisibleMovieCount] = useState(MOVIE_INITIAL_VISIBLE_CARDS);
+  const [viewMode, setViewMode] = useState<DataViewMode>("cards");
+  const [tableView, setTableView] = useState<TopicTableView>("standard");
+  const [selectedActor, setSelectedActor] = useState("");
 
   const domainStyle = DOMAIN_STYLES[domain];
   const DomainIcon = domainStyle.icon;
@@ -550,7 +576,16 @@ export default function TopicDashboard({
   useEffect(() => {
     if (domain !== "movie") return;
     let cancelled = false;
-    fetch(`/api/movie-theaters?options=1&pref=${theaterPrefecture}`)
+    const controller = new AbortController();
+    const abortForNavigation = () => {
+      cancelled = true;
+      controller.abort();
+    };
+    window.addEventListener("pagehide", abortForNavigation, { once: true });
+    window.addEventListener(NAVIGATION_START_EVENT, abortForNavigation, { once: true });
+    fetch(`/api/movie-theaters?options=1&pref=${theaterPrefecture}`, {
+      signal: controller.signal,
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error("theater options request failed");
         return (await response.json()) as { theaters?: TheaterOption[] };
@@ -565,7 +600,9 @@ export default function TopicDashboard({
         });
         setTheaterOptionValue("");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")) return;
         if (!cancelled) setTheaterOptions([]);
       })
       .finally(() => {
@@ -573,6 +610,9 @@ export default function TopicDashboard({
       });
     return () => {
       cancelled = true;
+      controller.abort();
+      window.removeEventListener("pagehide", abortForNavigation);
+      window.removeEventListener(NAVIGATION_START_EVENT, abortForNavigation);
     };
   }, [domain, theaterPrefecture]);
   const statuses = useMemo(
@@ -618,6 +658,7 @@ export default function TopicDashboard({
         item.region,
         item.summary,
         ...item.tags,
+        ...item.metrics.flatMap((metric) => [metric.label, metric.value]),
         ...(domain === "movie" ? [movieTypeFor(item), ...movieGenresFor(item)] : []),
       ];
       return searchableFields
@@ -630,6 +671,27 @@ export default function TopicDashboard({
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
     : filtered;
+
+  const movieActorsAvailable = useMemo(
+    () =>
+      [...new Set(filtered.flatMap(movieCast))].sort((a, b) =>
+        a.localeCompare(b, "ja"),
+      ),
+    [filtered],
+  );
+  const tableRows =
+    domain === "movie" && tableView === "actor"
+      ? selectedActor
+        ? filtered.filter((item) => movieCast(item).includes(selectedActor))
+        : []
+      : filtered;
+
+  const standardTableLabels: Record<TopicDomain, string> = {
+    hardware: "製品・情報一覧",
+    redevelopment: "再開発案件一覧",
+    movie: "作品一覧",
+    disaster: "災害事象一覧",
+  };
 
   const hasFilters =
     query.trim() !== "" ||
@@ -956,6 +1018,46 @@ export default function TopicDashboard({
         </div>
       </section>
 
+      <DataViewToolbar
+        mode={viewMode}
+        onModeChange={setViewMode}
+        count={viewMode === "table" ? tableRows.length : filtered.length}
+      >
+        {viewMode === "table" && (
+          <>
+            <label className="flex items-center gap-1.5 text-[10px] text-gray-500">
+              <span className="hidden sm:inline">一覧の種類</span>
+              <select
+                value={tableView}
+                onChange={(event) =>
+                  setTableView(event.target.value as TopicTableView)
+                }
+                className="h-7 rounded-md border border-white/10 bg-[#101018] px-2 text-[11px] text-gray-300 outline-none focus:border-white/25"
+              >
+                <option value="standard">{standardTableLabels[domain]}</option>
+                {domain === "movie" && (
+                  <>
+                    <option value="rating">評価ランキング</option>
+                    <option value="actor">俳優別出演作</option>
+                  </>
+                )}
+              </select>
+            </label>
+            {domain === "movie" && tableView === "actor" && (
+              <EntityPicker
+                id="movie-actor-options"
+                value={selectedActor}
+                onChange={setSelectedActor}
+                options={movieActorsAvailable}
+                placeholder="俳優名を入力…"
+                ariaLabel="俳優を選択"
+                accentClassName="focus:border-fuchsia-400/60"
+              />
+            )}
+          </>
+        )}
+      </DataViewToolbar>
+
       {filtered.length === 0 ? (
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-12 text-center text-gray-400">
           {domain === "disaster" ? (
@@ -976,6 +1078,8 @@ export default function TopicDashboard({
             フィルタを解除
           </button>
         </div>
+      ) : viewMode === "table" ? (
+        <TopicDataTable domain={domain} rows={tableRows} view={tableView} />
       ) : (
         <>
           <div className="gap-3 [column-fill:_balance] columns-1 sm:columns-2 xl:columns-3">

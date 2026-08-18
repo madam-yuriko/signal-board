@@ -78,6 +78,14 @@ function matchesSeriesTag(event: BoxingEvent, value: string): boolean {
   if (source === "Lemino Boxing" && /PHOENIX\s*BATTLE|フェニックスバトル/i.test(event.name)) {
     return false;
   }
+  if (
+    source === "Dynamic Glove" &&
+    /DYNAMIC\s*GLOVE|ダイナミック[\s・･]*グローブ/i.test(
+      `${event.series ?? ""} ${event.name}`.normalize("NFKC"),
+    )
+  ) {
+    return true;
+  }
   return event.series === source;
 }
 
@@ -127,15 +135,10 @@ export function filterPromotionEvents(
         .includes(query);
     })
     .sort((a, b) => {
-      const aUpcoming = isEventUpcoming(a);
-      const bUpcoming = isEventUpcoming(b);
-      if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
       if (a.date !== b.date) {
-        return aUpcoming
-          ? a.date.localeCompare(b.date)
-          : b.date.localeCompare(a.date);
+        return b.date.localeCompare(a.date);
       }
-      return (a.startTime ?? "").localeCompare(b.startTime ?? "");
+      return (b.startTime ?? "").localeCompare(a.startTime ?? "");
     });
 }
 

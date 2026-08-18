@@ -8,12 +8,22 @@ import {
   availableSeries,
   EMPTY_EVENT_FILTERS,
   filterPromotionEvents,
+  flattenBouts,
   type EventFilters,
 } from "@/lib/filters";
 import { isEventUpcoming } from "@/lib/format";
 import EventFilterBar from "@/components/EventFilterBar";
 import EventCard from "@/components/EventCard";
 import StatCards, { type Stat } from "@/components/StatCards";
+import DataViewToolbar, {
+  type DataViewMode,
+} from "@/components/DataViewToolbar";
+import BoxingDataTable, {
+  availableFighters,
+  boutsForTable,
+  type BoxingTableView,
+} from "@/components/BoxingDataTable";
+import EntityPicker from "@/components/EntityPicker";
 
 interface Props {
   events: BoxingEvent[];
@@ -41,11 +51,23 @@ export default function BoxingDashboard({
 }: Props) {
   const [filters, setFilters] =
     useState<EventFilters>(EMPTY_EVENT_FILTERS);
+  const [viewMode, setViewMode] = useState<DataViewMode>("cards");
+  const [tableView, setTableView] = useState<BoxingTableView>("events");
+  const [selectedFighter, setSelectedFighter] = useState("");
 
   const eventSeries = useMemo(() => availableSeries(events), [events]);
   const filtered = useMemo(
     () => filterPromotionEvents(events, filters),
     [events, filters],
+  );
+  const filteredBouts = useMemo(() => flattenBouts(filtered), [filtered]);
+  const fighterOptions = useMemo(
+    () => availableFighters(filteredBouts),
+    [filteredBouts],
+  );
+  const tableBouts = useMemo(
+    () => boutsForTable(filteredBouts, tableView, selectedFighter),
+    [filteredBouts, selectedFighter, tableView],
   );
 
   const stats: Stat[] = useMemo(() => {
@@ -132,6 +154,48 @@ export default function BoxingDashboard({
         series={eventSeries}
       />
 
+      <DataViewToolbar
+        mode={viewMode}
+        onModeChange={setViewMode}
+        count={
+          viewMode === "cards" || tableView === "events"
+            ? filtered.length
+            : tableBouts.length
+        }
+        unit={viewMode === "table" && tableView !== "events" ? "試合" : "興行"}
+      >
+        {viewMode === "table" && (
+          <>
+            <label className="flex items-center gap-1.5 text-[10px] text-gray-500">
+              <span className="hidden sm:inline">一覧の種類</span>
+              <select
+                value={tableView}
+                onChange={(event) =>
+                  setTableView(event.target.value as BoxingTableView)
+                }
+                className="h-7 rounded-md border border-white/10 bg-[#101018] px-2 text-[11px] text-gray-300 outline-none focus:border-red-400/50"
+              >
+                <option value="events">興行一覧</option>
+                <option value="bouts">全試合一覧</option>
+                <option value="world">世界戦一覧</option>
+                <option value="fighter">選手別戦績</option>
+              </select>
+            </label>
+            {tableView === "fighter" && (
+              <EntityPicker
+                id="boxing-fighter-options"
+                value={selectedFighter}
+                onChange={setSelectedFighter}
+                options={fighterOptions}
+                placeholder="選手名を入力…"
+                ariaLabel="選手を選択"
+                accentClassName="focus:border-red-400/60"
+              />
+            )}
+          </>
+        )}
+      </DataViewToolbar>
+
       {filtered.length === 0 ? (
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-10 text-center text-gray-400">
           <CalendarClock className="h-6 w-6 text-gray-600" />
@@ -144,6 +208,13 @@ export default function BoxingDashboard({
             フィルタをリセット
           </button>
         </div>
+      ) : viewMode === "table" ? (
+        <BoxingDataTable
+          view={tableView}
+          events={filtered}
+          bouts={tableBouts}
+          selectedFighter={selectedFighter}
+        />
       ) : (
         <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((event) => (
