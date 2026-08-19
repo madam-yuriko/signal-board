@@ -8,6 +8,7 @@ import {
   Building2,
   Cpu,
   Film,
+  Gamepad2,
   LoaderCircle,
   Swords,
   TriangleAlert,
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/", label: "CPU&GPU&APU", icon: Cpu },
   { href: "/redevelopment", label: "再開発", icon: Building2 },
   { href: "/movies", label: "映画", icon: Film },
+  { href: "/indie-games", label: "インディーゲーム", icon: Gamepad2 },
   { href: "/boxing", label: "ボクシング", icon: Swords },
   { href: "/disasters", label: "災害", icon: TriangleAlert },
 ];
@@ -63,7 +65,7 @@ export default function Header() {
           <FontScale />
         </div>
 
-        <nav aria-label="情報カテゴリー" className="grid grid-cols-5 gap-0.5 pb-2 sm:gap-1">
+        <nav aria-label="情報カテゴリー" className="flex gap-0.5 overflow-x-auto pb-2 sm:gap-1">
           {NAV.map(({ href, label, icon: Icon }) => {
             const atTarget = pathname === href;
             const active =
@@ -78,7 +80,7 @@ export default function Header() {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 onClick={atTarget ? undefined : () => startPageNavigation(href)}
-                className={`flex h-8 items-center justify-center gap-1 rounded-md border px-0.5 text-[10px] font-semibold leading-none transition-colors sm:gap-1.5 sm:px-1 sm:text-xs ${
+                className={`flex h-8 min-w-[72px] shrink-0 items-center justify-center gap-1 rounded-md border px-0.5 text-[10px] font-semibold leading-none transition-colors sm:min-w-0 sm:flex-1 sm:shrink sm:gap-1.5 sm:px-1 sm:text-xs ${
                   active
                     ? "border-white/15 bg-white/10 text-white"
                     : "border-transparent text-gray-500 hover:bg-white/5 hover:text-gray-200"
@@ -95,12 +97,10 @@ export default function Header() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed inset-x-0 bottom-0 top-[5.25rem] z-40 flex items-start justify-center bg-[#0b0c0f]/85 pt-12 backdrop-blur-sm"
+          className="fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-lg border border-white/10 bg-[#15161d]/95 px-3 py-2 text-[11px] font-semibold text-gray-200 shadow-2xl"
         >
-          <div className="glass-card flex items-center gap-2.5 rounded-lg px-4 py-3 text-xs font-semibold text-gray-200 shadow-2xl">
-            <LoaderCircle className="h-4 w-4 animate-spin text-cyan-300" />
-            タブを切り替えています
-          </div>
+          <LoaderCircle className="h-3.5 w-3.5 animate-spin text-cyan-300" />
+          タブを切り替えています
         </div>
       )}
     </header>

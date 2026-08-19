@@ -15,14 +15,18 @@ import type { BoxingEvent } from "@/types";
 const JBC_API = "https://jbc.or.jp/wp-json/wp/v2/posts";
 const JBC_SCHEDULED_CATEGORY = 5;
 const JBC_FINISHED_CATEGORY = 6;
-const REVALIDATE_SECONDS = 60 * 60 * 6;
-const LIVE_FEED_TIMEOUT_MS = 15_000;
-const ENRICHED_FEED_TIMEOUT_MS = 5_000;
-const JBC_RESULT_WAIT_MS = 1_500;
+const REVALIDATE_SECONDS = 60 * 60 * 24;
+const LIVE_FEED_TIMEOUT_MS = 20_000;
+const ENRICHED_FEED_TIMEOUT_MS = 30_000;
+const JBC_RESULT_WAIT_MS = 4_000;
 const MAX_JBC_RESULT_EVENTS = 24;
-const MAX_HISTORY_CARD_DATES = 48;
-const PRIORITY_CARD_DATES = 32;
-const PRIORITY_CARD_SERIES = new Set(["Dynamic Glove", "Prime Video Boxing"]);
+const MAX_HISTORY_CARD_DATES = 64;
+const PRIORITY_CARD_SERIES = new Set([
+  "Dynamic Glove",
+  "Prime Video Boxing",
+  "3150 FIGHT",
+  "Lifetime Boxing Fights",
+]);
 const HISTORY_START = "2021-01-01T00:00:00";
 const MAX_HISTORY_PAGES = 10;
 
@@ -236,12 +240,17 @@ async function fetchFinishedHistory(): Promise<JbcPost[]> {
   const totalPages = Math.min(first.totalPages, MAX_HISTORY_PAGES);
   if (totalPages === 1) return first.posts;
 
-  const remaining = await Promise.all(
+  const remaining = await Promise.allSettled(
     Array.from({ length: totalPages - 1 }, (_, index) =>
       fetchJbcPage(JBC_FINISHED_CATEGORY, index + 2, HISTORY_START),
     ),
   );
-  return [first, ...remaining].flatMap((result) => result.posts);
+  return [
+    first,
+    ...remaining
+      .filter((result): result is PromiseFulfilledResult<{ posts: JbcPost[]; totalPages: number }> => result.status === "fulfilled")
+      .map((result) => result.value),
+  ].flatMap((result) => result.posts);
 }
 
 function latestUpdate(events: BoxingEvent[]): string | undefined {
@@ -252,11 +261,20 @@ function latestUpdate(events: BoxingEvent[]): string | undefined {
 }
 
 async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
-  const [boxmobSchedule, scheduledPosts, finishedPosts] = await Promise.all([
+  const [boxmobResult, scheduledResult, finishedResult] = await Promise.allSettled([
     fetchBoxmobSchedule(),
     fetchScheduledPosts(),
     fetchFinishedHistory(),
   ]);
+  const boxmobSchedule = boxmobResult.status === "fulfilled"
+    ? boxmobResult.value
+    : [];
+  const scheduledPosts = scheduledResult.status === "fulfilled"
+    ? scheduledResult.value
+    : [];
+  const finishedPosts = finishedResult.status === "fulfilled"
+    ? finishedResult.value
+    : [];
   const today = tokyoDate(new Date());
   const recentCutoff = daysAgoIso(180);
   const jbcScheduledEvents = scheduledPosts
@@ -275,7 +293,12 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   ];
 
   if (allJbcEvents.length === 0) {
-    throw new Error("JBC API returned no usable events");
+    const failures = [boxmobResult, scheduledResult, finishedResult]
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+    throw new Error(
+      `ライブ取得元から利用可能な興行が返りませんでした${failures.length > 0 ? `: ${failures.join(" / ")}` : ""}`,
+    );
   }
 
   const uniqueEvents = mergeMajorEvents(allJbcEvents, today).filter(
@@ -285,38 +308,26 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
       MAJOR_SERIES.has(event.series ?? ""),
   );
   const storedEvents = mergeStoredBouts(uniqueEvents);
-  const priorityCardSets = await loadBoxmobCardSets(
-    storedEvents,
-    PRIORITY_CARD_DATES,
-  );
+  const unavailableSources: string[] = [];
+  if (boxmobResult.status === "rejected") unavailableSources.push("ボクシングモバイル予定");
+  if (scheduledResult.status === "rejected") unavailableSources.push("JBC予定");
+  if (finishedResult.status === "rejected") unavailableSources.push("JBC結果");
   return {
-    events: mergeBoxmobCards(storedEvents, priorityCardSets),
+    events: storedEvents,
     mode: "live",
     sourceName: boxmobSchedule.length > 0
       ? "ボクシングモバイル予定 / JBC結果"
       : "JBC予定・結果 / 公式シリーズ情報",
     updatedAt: latestUpdate(uniqueEvents),
+    warning: unavailableSources.length > 0
+      ? `${unavailableSources.join("・")}の取得に失敗したため、取得できたライブデータのみ表示しています。`
+      : undefined,
   };
 }
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v23-complete-result-catalog"],
-  {
-    revalidate: REVALIDATE_SECONDS,
-    tags: ["boxing-feed"],
-  },
-);
-
-const getCachedEnrichedLiveBoxingFeed = unstable_cache(
-  async (): Promise<BoxingFeed> => {
-    const baseFeed = await getCachedBaseLiveBoxingFeed();
-    return {
-      ...baseFeed,
-      events: await enrichEventsWithResults(baseFeed.events),
-    };
-  },
-  ["signal-board-boxing-feed-v23-complete-result-catalog"],
+  ["signal-board-boxing-feed-v32-bounded-schedule-fetch"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -344,8 +355,8 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
   }
 
   try {
-    return await Promise.race([
-      getCachedEnrichedLiveBoxingFeed(),
+    const events = await Promise.race([
+      enrichEventsWithResults(baseFeed.events),
       new Promise<never>((_, reject) => {
         setTimeout(
           () => reject(new Error("Boxing card enrichment timed out")),
@@ -353,12 +364,15 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
         );
       }),
     ]);
+    return { ...baseFeed, events };
   } catch (error) {
     console.error("Unable to enrich JBC boxing feed", error);
     return {
       ...baseFeed,
-      warning:
-        "対戦カード・試合結果の追加取得が完了しなかったため、取得済みの最新データのみ表示しています。",
+      warning: [
+        baseFeed.warning,
+        "対戦カード・試合結果の追加取得が時間内に完了しなかったため、取得できた興行情報のみ表示しています。",
+      ].filter(Boolean).join(" "),
     };
   }
 }
@@ -381,6 +395,94 @@ function sameVenue(left: string, right: string): boolean {
   return a === b || a.includes(b) || b.includes(a);
 }
 
+function sameMajorEvent(candidate: BoxingEvent, curated: BoxingEvent): boolean {
+  if (
+    candidate.date !== curated.date ||
+    !sameVenue(candidate.venue, curated.venue)
+  ) {
+    return false;
+  }
+
+  if (candidate.startTime && curated.startTime) {
+    return candidate.startTime === curated.startTime;
+  }
+
+  // 同日・同会場の複数興行を、開始時刻が欠けたデータでも別々に保持する。
+  const isLiveSchedule =
+    candidate.sourceName === "ボクシングモバイル" ||
+    candidate.sourceName === "JBC";
+  if (
+    candidate.name !== curated.name &&
+    !isLiveSchedule
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isGenericEventName(event: BoxingEvent): boolean {
+  const name = event.name.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+  const series = (event.series ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  return name === series || /興行$/.test(name);
+}
+
+function sameEventSlot(left: BoxingEvent, right: BoxingEvent): boolean {
+  return (
+    left.date === right.date &&
+    sameVenue(left.venue, right.venue) &&
+    (!left.startTime || !right.startTime || left.startTime === right.startTime) &&
+    left.series === right.series
+  );
+}
+
+function mergeEventBouts(
+  preferred: BoxingEvent["bouts"],
+  additional: BoxingEvent["bouts"],
+): BoxingEvent["bouts"] {
+  const merged = [...preferred];
+  for (const bout of additional) {
+    const index = merged.findIndex((candidate) => samePair(candidate, bout));
+    if (index === -1) {
+      merged.push(bout);
+      continue;
+    }
+    merged[index] = mergeCardResults([merged[index]], [bout])[0];
+  }
+  return merged;
+}
+
+function reconcileNamedEvents(events: BoxingEvent[]): BoxingEvent[] {
+  const reconciled: BoxingEvent[] = [];
+  for (const event of events) {
+    const duplicateIndex = reconciled.findIndex(
+      (candidate) =>
+        sameEventSlot(candidate, event) &&
+        (isGenericEventName(candidate) || isGenericEventName(event)),
+    );
+    if (duplicateIndex === -1) {
+      reconciled.push(event);
+      continue;
+    }
+
+    const existing = reconciled[duplicateIndex];
+    const preferred = isGenericEventName(existing) && !isGenericEventName(event)
+      ? event
+      : existing;
+    const additional = preferred === event ? existing : event;
+    reconciled[duplicateIndex] = {
+      ...preferred,
+      image: preferred.image ?? additional.image,
+      detailsUrl: preferred.detailsUrl ?? additional.detailsUrl,
+      sourceUpdatedAt: preferred.sourceUpdatedAt ?? additional.sourceUpdatedAt,
+      bouts: mergeEventBouts(preferred.bouts, additional.bouts),
+    };
+  }
+  return reconciled;
+}
+
 function mergeMajorEvents(
   events: BoxingEvent[],
   today: string,
@@ -393,10 +495,8 @@ function mergeMajorEvents(
       status: sourceEvent.date > today ? "scheduled" : "finished",
       bouts: sourceEvent.bouts ?? [],
     };
-    const existingIndex = merged.findIndex(
-      (candidate) =>
-        candidate.date === curated.date &&
-        sameVenue(candidate.venue, curated.venue),
+    const existingIndex = merged.findIndex((candidate) =>
+      sameMajorEvent(candidate, curated),
     );
 
     if (existingIndex === -1) {
@@ -426,14 +526,14 @@ function mergeMajorEvents(
     };
   }
 
-  return [
+  return reconcileNamedEvents([
     ...new Map(
       merged.map((event) => [
-        `${event.date}:${normalizeVenue(event.venue)}:${event.series ?? ""}`,
+        `${event.date}:${normalizeVenue(event.venue)}:${event.series ?? ""}:${event.startTime ?? ""}:${event.name}`,
         event,
       ]),
     ).values(),
-  ];
+  ]);
 }
 async function enrichEventsWithResults(
   events: BoxingEvent[],
@@ -538,13 +638,23 @@ async function loadBoxmobCardSets(
   );
   if (boxmobTargets.length === 0) return [];
 
-  const priorityDates = [...new Set(
+  const numbered3150Dates = [...new Set(
+    boxmobTargets
+      .filter((event) => event.series === "3150 FIGHT" && !isGenericEventName(event))
+      .sort((left, right) => right.date.localeCompare(left.date))
+      .map((event) => event.date),
+  )];
+  const otherPriorityDates = [...new Set(
     boxmobTargets
       .filter((event) => PRIORITY_CARD_SERIES.has(event.series ?? ""))
       .slice()
       .sort((left, right) => right.date.localeCompare(left.date))
       .map((event) => event.date),
   )];
+  const priorityDates = [
+    ...numbered3150Dates,
+    ...otherPriorityDates.filter((date) => !numbered3150Dates.includes(date)),
+  ];
   const latestDates = [...new Set(
     boxmobTargets
       .slice()
@@ -558,15 +668,27 @@ async function loadBoxmobCardSets(
       .sort((left, right) => right.date.localeCompare(left.date))
       .map((event) => event.date),
   )].slice(0, Math.ceil(maxDates / 2));
-  const targetDates = [...new Set([...latestDates, ...majorDates])].slice(
-    0,
-    maxDates,
-  );
-  targetDates.unshift(...priorityDates.filter((date) => !targetDates.includes(date)));
-  targetDates.splice(maxDates);
+  const priorityDateSet = new Set(priorityDates);
+  const fallbackDates = [...new Set([
+    ...latestDates,
+    ...majorDates,
+  ])].filter((date) => !priorityDateSet.has(date));
+  const targetDates = [
+    ...priorityDates,
+    ...fallbackDates.slice(0, Math.max(0, maxDates - priorityDates.length)),
+  ];
+  const targetSeriesByDate = new Map<string, Set<string>>();
+  for (const event of boxmobTargets) {
+    if (!targetDates.includes(event.date) || isGenericEventName(event)) continue;
+    const hint = seriesHint(`${event.name} ${event.series ?? ""}`);
+    if (!hint) continue;
+    const series = targetSeriesByDate.get(event.date) ?? new Set<string>();
+    series.add(hint);
+    targetSeriesByDate.set(event.date, series);
+  }
 
   try {
-    return await fetchBoxmobHistoryCards(targetDates);
+    return await fetchBoxmobHistoryCards(targetDates, targetSeriesByDate);
   } catch (error) {
     console.warn("Unable to load Boxing Mobile historical cards", error);
     return [];
@@ -652,7 +774,12 @@ function seriesHint(value: string): string {
   if (text.includes("dynamic glove")) return "dynamic-glove";
   if (text.includes("u-next") || text.includes("unext")) return "unext";
   if (text.includes("treasure")) return "treasure";
-  if (text.includes("3150") || text.includes("kworld")) return "3150";
+  if (
+    text.includes("3150") ||
+    text.includes("kworld") ||
+    text.includes("lush") ||
+    text.includes("saikou")
+  ) return "3150";
   if (text.includes("phoenix") || text.includes("フェニックス")) return "phoenix";
   if (text.includes("lifetime")) return "lifetime";
   return "";
@@ -672,6 +799,7 @@ function selectCardSet(event: BoxingEvent, cardSets: BoxmobCardSet[]): BoxmobCar
     let score = 0;
     const cardHint = seriesHint(cardSet.name);
     if (eventHint && eventHint === cardHint) score += 4;
+    if (eventHint === "3150" && /弁慶|benkei/i.test(cardSet.name)) score += 3;
     for (const resultBout of event.bouts) {
       if (cardSet.bouts.some((cardBout) => samePair(resultBout, cardBout))) score += 10;
     }

@@ -1,7 +1,7 @@
 import type { Bout } from "@/types";
 import { organizationsFromText } from "@/lib/organizations";
 
-const REVALIDATE_SECONDS = 60 * 60 * 6;
+const REVALIDATE_SECONDS = 60 * 60 * 24;
 const RESULT_PATTERN = /(?:TKO|KO|RTD|判定|負傷|棄権|失格|引分|ドロー|無効|NC)/i;
 
 interface PdfTextItem {

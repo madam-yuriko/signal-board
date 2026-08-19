@@ -13,6 +13,7 @@ const UNEXT_HISTORY =
 const DYNAMIC_GLOVE_HISTORY = "https://dynamicglove.com/";
 const FIGHT_3150_HISTORY = "https://www.3150fight.com/result/";
 const TREASURE_HISTORY = "https://tb-promotion.com/archives/";
+const LIFETIME_HISTORY = "https://www.lifetime-boxing-fights.tdc.ne.jp/";
 
 function event(
   id: string,
@@ -25,6 +26,7 @@ function event(
   sourceUrl: string,
   domestic = true,
   boxmobSid?: string,
+  startTime?: string,
 ): MajorEvent {
   return {
     id: `major-${id}`,
@@ -37,6 +39,7 @@ function event(
     sourceName,
     sourceUrl,
     ...(boxmobSid ? { boxmobSid } : {}),
+    ...(startTime ? { startTime } : {}),
   };
 }
 
@@ -106,7 +109,45 @@ export const majorBoxingEvents: MajorEvent[] = [
   event("treasure-13", "2026-07-15", "TREASURE BOXING PROMOTION 13", "Treasure-Boxing", "後楽園ホール", "東京", "TREASURE BOXING PROMOTION", "https://tb-promotion.com/events/462/"),
   event("treasure-14", "2026-08-16", "TREASURE BOXING PROMOTION 14", "Treasure-Boxing", "後楽園ホール", "東京", "TREASURE BOXING PROMOTION", "https://tb-promotion.com/events/468/"),
 
+  // LIFETIME BOXING FIGHTS（志成プロモーション公式履歴）
+  event("lifetime-19", "2024-02-16", "Lifetime Boxing Fights 19", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-20", "2024-04-17", "Lifetime Boxing Fights 20", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-21", "2024-06-27", "Lifetime Boxing Fights 21", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-22", "2024-07-07", "Lifetime Boxing Fights 22", "Lifetime Boxing Fights", "両国国技館", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-23", "2024-08-22", "Lifetime Boxing Fights 23", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-24", "2024-10-31", "Lifetime Boxing Fights 24", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-25", "2024-12-31", "Lifetime Boxing Fights 25", "Lifetime Boxing Fights", "大田区総合体育館", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-26", "2025-03-21", "Lifetime Boxing Fights 26", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-27", "2025-05-11", "Lifetime Boxing Fights 27", "Lifetime Boxing Fights", "大田区総合体育館", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-28", "2025-08-04", "Lifetime Boxing Fights 28", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-29", "2025-10-29", "Lifetime Boxing Fights 29", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-30", "2025-12-31", "Lifetime Boxing Fights 30", "Lifetime Boxing Fights", "大田区総合体育館", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+  event("lifetime-31", "2026-03-09", "Lifetime Boxing Fights 31", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
+
+  // 2026-07-14は志成主催だが、公式上はLBFではなくPhoenix Battle 158。
+  event("phoenix-158", "2026-07-14", "Lemino BOXING フェニックスバトル 158", "Phoenix Battle", "後楽園ホール", "東京", "Lemino", "https://www.lifetime-boxing-fights.tdc.ne.jp/"),
+
   // 3150FIGHT（公式試合結果一覧）
+  event("3150-survival-0", "2022-05-14", "3150FIGHT ～SURVIVAL～ vol.0", "3150 FIGHT", "176BOX", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),
+  event("3150-survival-1", "2022-09-17", "3150FIGHT SURVIVAL vol.1", "3150 FIGHT", "メルパルクホール大阪", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),
+  event("3150-survival-2", "2022-11-27", "3150FIGHT SURVIVAL vol.2", "3150 FIGHT", "176BOX", "大阪", "3150FIGHT", FIGHT_3150_HISTORY, true, undefined, "12:00"),
+  event("3150-survival-3", "2022-11-27", "3150FIGHT SURVIVAL vol.3", "3150 FIGHT", "176BOX", "大阪", "3150FIGHT", FIGHT_3150_HISTORY, true, undefined, "17:00"),
+  event("3150-survival-4", "2023-04-01", "3150FIGHT SURVIVAL vol.4", "3150 FIGHT", "エディオンアリーナ大阪 第2競技場", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),
+  event("3150-survival-5", "2023-06-10", "3150FIGHT SURVIVAL vol.5", "3150 FIGHT", "エディオンアリーナ大阪 第2競技場", "大阪", "3150FIGHT", FIGHT_3150_HISTORY, true, undefined, "12:30"),
+  event("3150-survival-6", "2023-06-10", "3150FIGHT SURVIVAL vol.6", "3150 FIGHT", "エディオンアリーナ大阪 第2競技場", "大阪", "3150FIGHT", FIGHT_3150_HISTORY, true, undefined, "17:15"),
+  event("3150-survival-7", "2023-07-20", "3150FIGHT SURVIVAL vol.7", "3150 FIGHT", "後楽園ホール", "東京", "3150FIGHT", FIGHT_3150_HISTORY),
+  event("3150-survival-8", "2023-09-03", "3150FIGHT SURVIVAL vol.8", "3150 FIGHT", "コンベックス岡山・中展示場", "岡山", "3150FIGHT", FIGHT_3150_HISTORY),
+  event("lushbomu-03", "2024-05-04", "LUSHBOMU vol.3 feat.3150FIGHT", "3150 FIGHT", "エディオンアリーナ大阪", "大阪", "3150FIGHT / LUSHBOMU", FIGHT_3150_HISTORY),
+  event("lushbomu-01", "2024-08-24", "3150×LUSHBOMU vol.1", "3150 FIGHT", "大和アリーナ", "大阪", "3150FIGHT / LUSHBOMU", "https://www.3150fight.com/schedule/25/"),
+  event("lushbomu-02", "2024-10-12", "3150×LUSHBOMU vol.2", "3150 FIGHT", "愛知県国際展示場", "愛知", "3150FIGHT / LUSHBOMU", FIGHT_3150_HISTORY),
+  event("lushbomu-03-winter", "2024-12-21", "3150×LUSHBOMU vol.3", "3150 FIGHT", "ツインメッセ静岡", "静岡", "3150FIGHT / LUSHBOMU", FIGHT_3150_HISTORY),
+  event("lushbomu-04", "2025-03-29", "3150×LUSHBOMU vol.4", "3150 FIGHT", "愛知県国際展示場", "愛知", "3150FIGHT / LUSHBOMU", FIGHT_3150_HISTORY),
+  event("lushbomu-05", "2025-03-30", "3150×LUSHBOMU vol.5", "3150 FIGHT", "愛知県国際展示場", "愛知", "3150FIGHT / LUSHBOMU", FIGHT_3150_HISTORY),
+  event("lushbomu-06", "2025-05-24", "3150×LUSHBOMU vol.6", "3150 FIGHT", "インテックス大阪", "大阪", "3150FIGHT / LUSHBOMU", FIGHT_3150_HISTORY),
+  event("saikoulush-01", "2025-07-20", "3150×LUSHBOMU vol.7 ＆ SAIKOU×LUSH vol.1", "3150 FIGHT", "ビシュケク・アリーナ", "ビシュケク", "3150FIGHT / LUSH", FIGHT_3150_HISTORY, false),
+  event("saikoulush-02", "2025-10-25", "SAIKOU×LUSH vol.2", "3150 FIGHT", "ビシュケク・アリーナ", "ビシュケク", "3150FIGHT / LUSH", FIGHT_3150_HISTORY, false),
+  event("saikoulush-03", "2025-10-26", "SAIKOU×LUSH vol.3", "3150 FIGHT", "ビシュケク・アリーナ", "ビシュケク", "3150FIGHT / LUSH", FIGHT_3150_HISTORY, false),
+  event("saikoulush-04", "2025-12-27", "SAIKOU×LUSH vol.4 in JAPAN", "3150 FIGHT", "愛知県国際展示場", "愛知", "3150FIGHT / LUSH", FIGHT_3150_HISTORY),
   event("3150-01", "2021-12-16", "3150FIGHT vol.1", "3150 FIGHT", "メルパルクホール大阪", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),
   event("3150-02", "2022-04-29", "3150FIGHT vol.2", "3150 FIGHT", "メルパルクホール大阪", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),
   event("3150-03", "2022-08-14", "3150FIGHT vol.3", "3150 FIGHT", "エディオンアリーナ大阪 第1競技場", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),

@@ -6,8 +6,12 @@ import { organizationsFromText } from "@/lib/organizations";
 
 const SCHEDULE_URL = "https://boxmob.jp/sp/schedule.html";
 const DETAIL_URL = "https://boxmob.jp/sp/schedule/index.html";
-const REVALIDATE_SECONDS = 60 * 60 * 6;
-const FETCH_CONCURRENCY = 6;
+const REVALIDATE_SECONDS = 60 * 60 * 24;
+const FETCH_CONCURRENCY = 24;
+const SCHEDULE_LIST_TIMEOUT_MS = 8_000;
+const SCHEDULE_DETAIL_TIMEOUT_MS = 4_000;
+const HISTORY_DETAIL_TIMEOUT_MS = 5_000;
+const SCHEDULE_CARD_LIMIT = 24;
 
 interface ScheduleEntry {
   sid: string;
@@ -59,14 +63,17 @@ function plainText(value: string): string {
   );
 }
 
-async function fetchShiftJis(url: string): Promise<string> {
+async function fetchShiftJis(
+  url: string,
+  timeoutMs = 12_000,
+): Promise<string> {
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "User-Agent": "SignalBoard/1.0 (+public boxing schedule reader)",
     },
     next: { revalidate: REVALIDATE_SECONDS },
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
     throw new Error(`Boxing Mobile returned ${response.status}`);
@@ -255,7 +262,7 @@ function seriesForName(name: string): string {
   if (/U-?NEXT/i.test(normalized)) return "U-NEXT Boxing";
   if (/TREASURE/i.test(normalized)) return "Treasure-Boxing";
   if (/3150|KWORLD3/i.test(normalized)) return "3150 FIGHT";
-  if (/Lifetime/i.test(normalized)) return "Lifetime Boxing Fights";
+  if (/LIFE\s*TIME/i.test(normalized)) return "Lifetime Boxing Fights";
   return normalized.replace(/\[[^\]]+\]/g, "").trim();
 }
 
@@ -263,11 +270,15 @@ async function loadEvent(
   entry: ScheduleEntry,
   now: Date,
   status: BoxingEvent["status"] = "scheduled",
+  detailTimeoutMs = 12_000,
 ): Promise<BoxingEvent> {
   const detailsUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
   let bouts: Bout[] = [];
   try {
-    bouts = parseBouts(await fetchShiftJis(detailsUrl), `boxmob-${entry.sid}`);
+    bouts = parseBouts(
+      await fetchShiftJis(detailsUrl, detailTimeoutMs),
+      `boxmob-${entry.sid}`,
+    );
   } catch (error) {
     console.warn(`Unable to load Boxing Mobile card ${entry.sid}`, error);
   }
@@ -292,11 +303,18 @@ async function loadEvent(
   };
 }
 
-async function loadCardSet(entry: ScheduleEntry, year: number): Promise<BoxmobCardSet> {
+async function loadCardSet(
+  entry: ScheduleEntry,
+  year: number,
+  detailTimeoutMs = HISTORY_DETAIL_TIMEOUT_MS,
+): Promise<BoxmobCardSet> {
   const detailsUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
   let bouts: Bout[] = [];
   try {
-    bouts = parseBouts(await fetchShiftJis(detailsUrl), `boxmob-${entry.sid}`);
+    bouts = parseBouts(
+      await fetchShiftJis(detailsUrl, detailTimeoutMs),
+      `boxmob-${entry.sid}`,
+    );
   } catch (error) {
     console.warn(`Unable to load Boxing Mobile historical card ${entry.sid}`, error);
   }
@@ -311,6 +329,7 @@ async function loadCardSet(entry: ScheduleEntry, year: number): Promise<BoxmobCa
 
 export async function fetchBoxmobHistoryCards(
   targetDates: string[],
+  targetSeriesByDate?: Map<string, Set<string>>,
 ): Promise<BoxmobCardSet[]> {
   const months = [...new Set(targetDates.map((date) => date.slice(0, 7)))];
   if (months.length === 0) return [];
@@ -333,11 +352,20 @@ export async function fetchBoxmobHistoryCards(
     }),
   );
   const allowedDates = new Set(targetDates);
-  const candidates = indexEntries.filter((entry) =>
-    allowedDates.has(
-      `${entry.year}-${String(entry.month).padStart(2, "0")}-${String(entry.day).padStart(2, "0")}`,
-    ),
-  );
+  const candidates = indexEntries.filter((entry) => {
+    const date = `${entry.year}-${String(entry.month).padStart(2, "0")}-${String(entry.day).padStart(2, "0")}`;
+    if (!allowedDates.has(date)) return false;
+    const allowedSeries = targetSeriesByDate?.get(date);
+    if (!allowedSeries || allowedSeries.size === 0) return true;
+    const normalizedName = entry.name.normalize("NFKC").toLowerCase();
+    return [...allowedSeries].some((series) => {
+      if (series === "3150") return /3150|kworld|lush|saikou/.test(normalizedName);
+      if (series === "prime") return /prime\s*video/.test(normalizedName);
+      if (series === "dynamic-glove") return /dynamic\s*glove|ダイナミック/.test(normalizedName);
+      if (series === "lifetime") return /life\s*time|lifetime/.test(normalizedName);
+      return true;
+    });
+  });
   const results: BoxmobCardSet[] = new Array(candidates.length);
   let cursor = 0;
   await Promise.all(
@@ -355,19 +383,47 @@ export async function fetchBoxmobHistoryCards(
 
 export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
   const now = new Date();
-  const entries = parseScheduleList(await fetchShiftJis(SCHEDULE_URL));
+  const entries = parseScheduleList(
+    await fetchShiftJis(SCHEDULE_URL, SCHEDULE_LIST_TIMEOUT_MS),
+  );
   if (entries.length === 0) {
     throw new Error("Boxing Mobile returned no scheduled events");
   }
 
-  const events: BoxingEvent[] = new Array(entries.length);
+  const events: BoxingEvent[] = entries.map((entry) => ({
+    id: `boxmob-${entry.sid}`,
+    date: `${eventYear(entry.month, entry.day, now)}-${String(entry.month).padStart(2, "0")}-${String(entry.day).padStart(2, "0")}`,
+    status: "scheduled",
+    name: entry.name,
+    series: seriesForName(entry.name),
+    venue: entry.venue,
+    city: cityForVenue(entry.venue),
+    domestic: isDomesticVenue(entry.venue),
+    startTime: entry.startTime,
+    sourceName: "ボクシングモバイル",
+    sourceUrl: SCHEDULE_URL,
+    detailsUrl: `${DETAIL_URL}?sid=${entry.sid}&s=1`,
+    sourceUpdatedAt: now.toISOString(),
+    bouts: [],
+  }));
+  const cardEntries = [...entries]
+    .sort((left, right) => {
+      const leftPriority = /3150|prime|dynamic|lemino|phoenix|lifetime|u-?next|treasure/i.test(left.name) ? 0 : 1;
+      const rightPriority = /3150|prime|dynamic|lemino|phoenix|lifetime|u-?next|treasure/i.test(right.name) ? 0 : 1;
+      return leftPriority - rightPriority;
+    })
+    .slice(0, SCHEDULE_CARD_LIMIT);
+  const indexes = new Map(cardEntries.map((entry, index) => [entry.sid, index]));
   let cursor = 0;
   await Promise.all(
-    Array.from({ length: Math.min(FETCH_CONCURRENCY, entries.length) }, async () => {
-      while (cursor < entries.length) {
+    Array.from({ length: Math.min(FETCH_CONCURRENCY, cardEntries.length) }, async () => {
+      while (cursor < cardEntries.length) {
         const index = cursor;
         cursor += 1;
-        events[index] = await loadEvent(entries[index], now);
+        const entry = cardEntries[index];
+        const event = await loadEvent(entry, now, "scheduled", SCHEDULE_DETAIL_TIMEOUT_MS);
+        const originalIndex = entries.findIndex((candidate) => candidate.sid === entry.sid);
+        if (originalIndex !== -1) events[originalIndex] = event;
       }
     }),
   );

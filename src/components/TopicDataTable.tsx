@@ -3,6 +3,7 @@
 import { ExternalLink, Star } from "lucide-react";
 import type { TopicBoard, TopicDomain } from "@/types/topics";
 import DataTable, { type DataTableColumn } from "@/components/DataTable";
+import { indieGameGenresFor } from "@/lib/indieGameGenres";
 
 export type TopicTableView = "standard" | "rating" | "actor";
 
@@ -162,10 +163,11 @@ function standardColumns(domain: TopicDomain): DataTableColumn<TopicBoard>[] {
   const labels: Record<Exclude<TopicDomain, "movie">, { title: string; category: string; region: string; date: string }> = {
     hardware: { title: "製品・情報", category: "種類", region: "メーカー", date: "日付" },
     redevelopment: { title: "再開発案件", category: "種類", region: "地域", date: "予定" },
+    "indie-game": { title: "ゲーム", category: "ゲームジャンル", region: "情報源", date: "発売日" },
     disaster: { title: "災害事象", category: "種類", region: "地域", date: "最終更新" },
   };
   const domainLabels = labels[domain as Exclude<TopicDomain, "movie">];
-  return [
+  const columns: DataTableColumn<TopicBoard>[] = [
     {
       id: "title",
       label: domainLabels.title,
@@ -174,17 +176,21 @@ function standardColumns(domain: TopicDomain): DataTableColumn<TopicBoard>[] {
       primary: true,
       className: "min-w-48",
     },
-    {
+    ...(domain === "indie-game" ? [] : [{
       id: "status",
       label: "状態",
       render: statusCell,
       sortValue: (item) => item.statusLabel,
-    },
+    } satisfies DataTableColumn<TopicBoard>]),
     {
       id: "category",
       label: domainLabels.category,
-      render: (item) => item.category,
-      sortValue: (item) => item.category,
+      render: (item) => domain === "indie-game"
+        ? indieGameGenresFor(item).join("・")
+        : item.category,
+      sortValue: (item) => domain === "indie-game"
+        ? indieGameGenresFor(item).join(" ")
+        : item.category,
     },
     {
       id: "region",
@@ -195,8 +201,13 @@ function standardColumns(domain: TopicDomain): DataTableColumn<TopicBoard>[] {
     {
       id: "date",
       label: domainLabels.date,
-      render: (item) => item.dateLabel,
-      sortValue: (item) => item.dateLabel,
+      render: (item) => domain === "indie-game" ? (
+        <div>
+          <div>{item.dateLabel}</div>
+          {item.articleUpdatedLabel && <div className="text-[10px] text-gray-500">{item.articleUpdatedLabel}</div>}
+        </div>
+      ) : item.dateLabel,
+      sortValue: (item) => item.releaseDate ?? item.dateLabel,
       className: "whitespace-nowrap",
     },
     {
@@ -214,6 +225,7 @@ function standardColumns(domain: TopicDomain): DataTableColumn<TopicBoard>[] {
       className: "min-w-52",
     },
   ];
+  return columns;
 }
 
 export default function TopicDataTable({

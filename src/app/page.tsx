@@ -1,7 +1,7 @@
 import TopicDashboard from "@/components/TopicDashboard";
 import { getTopicFeed } from "@/lib/topicFeed";
 
-export const revalidate = 21600;
+export const revalidate = 86400;
 
 export default async function DashboardPage() {
   const feed = await getTopicFeed("hardware");

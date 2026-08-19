@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "Signal Board | CPU・GPU・APU・再開発・映画・ボクシング・災害";
+const title = "Signal Board | CPU・GPU・APU・再開発・映画・インディーゲーム・ボクシング・災害";
 const description =
-  "CPU・GPU・APU、再開発、映画、ボクシング、災害をまとめて確認できる情報ボード。";
+  "CPU・GPU・APU、再開発、映画、インディーゲーム、ボクシング、災害をまとめて確認できる情報ボード。";
 
 export const metadata: Metadata = {
   metadataBase: new URL(

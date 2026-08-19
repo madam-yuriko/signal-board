@@ -1,4 +1,9 @@
-export type TopicDomain = "hardware" | "redevelopment" | "movie" | "disaster";
+export type TopicDomain =
+  | "hardware"
+  | "redevelopment"
+  | "movie"
+  | "indie-game"
+  | "disaster";
 
 export type MovieType = "邦画" | "洋画" | "アニメ/CG";
 
@@ -34,6 +39,14 @@ export interface TopicBoard {
   sourceUrl?: string;
   /** Movie-only first-level classification used by the movie tag filter. */
   movieType?: MovieType;
-  /** Movie-only genre tags. A film may belong to more than one genre. */
+  /** Normalized genre tags. A title may belong to more than one genre. */
   genres?: string[];
+  /** Normalized platform tags used by the indie-game platform filter. */
+  platforms?: string[];
+  /** Primary release date used for the indie-game card date and release-window filter. */
+  releaseDate?: string;
+  /** Article update date shown alongside the primary release date. */
+  articleUpdatedLabel?: string;
+  /** Platform whose release date was selected for the indie-game card. */
+  releasePlatform?: string;
 }

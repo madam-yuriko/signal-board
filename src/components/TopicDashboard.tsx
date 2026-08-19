@@ -9,6 +9,7 @@ import {
   Clock3,
   Cpu,
   Film,
+  Gamepad2,
   MapPin,
   RotateCcw,
   Search,
@@ -29,6 +30,14 @@ import TopicDataTable, {
   type TopicTableView,
 } from "@/components/TopicDataTable";
 import EntityPicker from "@/components/EntityPicker";
+import {
+  INDIE_GAME_GENRES,
+  indieGameGenresFor,
+} from "@/lib/indieGameGenres";
+import {
+  INDIE_GAME_PLATFORMS,
+  indieGamePlatformsFor,
+} from "@/lib/indieGamePlatforms";
 
 const TONE_STYLES: Record<TopicStatusTone, string> = {
   neutral: "border-white/15 bg-white/5 text-gray-300",
@@ -181,6 +190,14 @@ const DOMAIN_STYLES: Record<
     imageFallback: "from-fuchsia-950 via-zinc-900 to-indigo-950",
     searchPlaceholder: "作品名・ジャンル・キーワードで検索",
   },
+  "indie-game": {
+    label: "インディーゲーム",
+    eyebrow: "個人・小規模スタジオ作品",
+    icon: Gamepad2,
+    filter: "focus:border-emerald-400/60",
+    imageFallback: "from-emerald-950 via-zinc-900 to-sky-950",
+    searchPlaceholder: "作品名・開発元・キーワードで検索",
+  },
   disaster: {
     label: "災害",
     eyebrow: "防災・危機管理",
@@ -259,6 +276,29 @@ function statusStats(domain: TopicDomain, items: TopicBoard[]): Stat[] {
         value: items.filter((item) => item.status === "streaming").length,
         accent: "text-emerald-300",
         hint: "見放題・レンタル",
+      },
+    ];
+  }
+
+  if (domain === "indie-game") {
+    return [
+      { label: "登録作品", value: items.length, hint: "条件に一致" },
+      {
+        label: "CS対応",
+        value: items.filter((item) => item.tags.some((tag) => ["PS", "Switch", "XBOX"].includes(tag))).length,
+        accent: "text-emerald-300",
+        hint: "PS / Switch / XBOX",
+      },
+      {
+        label: "Steam対応",
+        value: items.filter((item) => item.tags.includes("Steam")).length,
+        accent: "text-sky-300",
+        hint: "PC版",
+      },
+      {
+        label: "情報源",
+        value: new Set(items.map((item) => item.region)).size,
+        hint: "指定サイト",
       },
     ];
   }
@@ -394,7 +434,18 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
   const domain = DOMAIN_STYLES[item.domain];
 
   return (
-    <article className="glass-card group overflow-hidden rounded-lg">
+    <article className="glass-card group relative overflow-hidden rounded-lg">
+      {item.domain === "indie-game" && item.sourceUrl && (
+        <a
+          href={item.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${item.title}の元記事を開く`}
+          className="absolute inset-0 z-10 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80"
+        >
+          <span className="sr-only">元記事を開く</span>
+        </a>
+      )}
       <div className="p-3 pb-2.5">
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
           {item.domain === "movie" ? (
@@ -408,16 +459,27 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
                 </span>
               ))}
             </>
+          ) : item.domain === "indie-game" ? (
+            indieGameGenresFor(item).map((genre) => (
+              <span
+                key={genre}
+                className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200"
+              >
+                {genre}
+              </span>
+            ))
           ) : (
             <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-gray-300">
               {item.category}
             </span>
           )}
-          <span
-            className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${TONE_STYLES[item.statusTone]}`}
-          >
-            {item.statusLabel}
-          </span>
+          {item.domain !== "indie-game" && (
+            <span
+              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${TONE_STYLES[item.statusTone]}`}
+            >
+              {item.statusLabel}
+            </span>
+          )}
         </div>
         <h2 className="text-xl font-bold leading-tight text-white sm:text-2xl">
           {item.title}
@@ -427,10 +489,20 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
             <CalendarClock className="h-3 w-3" />
             {item.dateLabel}
           </span>
-          <span className="flex items-center gap-1">
-            <MapPin className="h-3 w-3" />
-            {item.location}
-          </span>
+          {item.domain === "indie-game" && item.articleUpdatedLabel && (
+            <span className="flex items-center gap-1 text-gray-500">
+              <Clock3 className="h-3 w-3" />
+              {item.articleUpdatedLabel}
+            </span>
+          )}
+          {item.domain === "indie-game" ? (
+            <span className="text-emerald-300/80">元記事: {item.region} ↗</span>
+          ) : (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3 w-3" />
+              {item.location}
+            </span>
+          )}
         </div>
       </div>
 
@@ -451,7 +523,7 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
       </div>
 
       <div className="space-y-3 p-3">
-        <p className="text-xs leading-relaxed text-gray-300">{item.summary}</p>
+        <p className="text-[12.5px] leading-relaxed text-gray-300">{item.summary}</p>
 
         {item.domain === "movie" && (
           <MovieTheaterAvailability
@@ -479,17 +551,23 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
             <Clock3 className="h-3 w-3" />
             最新更新
           </div>
-          <div className="space-y-1.5">
-            {item.updates.map((update) => (
-              <div
-                key={`${update.at}-${update.text}`}
-                className="flex gap-2 text-[11px] leading-relaxed"
-              >
-                <span className="w-12 shrink-0 text-gray-500">{update.at}</span>
-                <span className="text-gray-300">{update.text}</span>
-              </div>
-            ))}
-          </div>
+          {item.domain === "indie-game" ? (
+            <div className="text-[13px] text-gray-300">
+              {item.updates[0]?.at ?? item.articleUpdatedLabel?.replace(/^記事更新\s*/, "") ?? "—"}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {item.updates.map((update) => (
+                <div
+                  key={`${update.at}-${update.text}`}
+                  className="flex gap-2 text-[11px] leading-relaxed"
+                >
+                  <span className="w-12 shrink-0 text-gray-500">{update.at}</span>
+                  <span className="text-gray-300">{update.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-1">
@@ -512,7 +590,7 @@ interface Props {
   title: string;
   description: string;
   items: TopicBoard[];
-  feedMode: "live" | "fallback";
+  feedMode: "live" | "fallback" | "curated";
   sourceName: string;
   updatedAt?: string;
 }
@@ -543,6 +621,8 @@ export default function TopicDashboard({
   const [region, setRegion] = useState("all");
   const [movieTypes, setMovieTypes] = useState<MovieType[]>([]);
   const [movieGenres, setMovieGenres] = useState<string[]>([]);
+  const [indieGenre, setIndieGenre] = useState<string>("all");
+  const [indiePlatform, setIndiePlatform] = useState<string>("all");
   const [favoriteTheaters, setFavoriteTheaters] = useState<string[]>([]);
   const [favoriteTheatersSaved, setFavoriteTheatersSaved] = useState(false);
   const [theaterPrefecture, setTheaterPrefecture] = useState("13");
@@ -632,6 +712,8 @@ export default function TopicDashboard({
     const knownWithoutOther = MOVIE_GENRE_ORDER.filter((genre) => genre !== "その他");
     return [...knownWithoutOther, ...additional.filter((genre) => genre !== "その他"), "その他"];
   }, [items]);
+  const indieGenresAvailable = INDIE_GAME_GENRES;
+  const indiePlatformsAvailable = INDIE_GAME_PLATFORMS;
   const regions = useMemo(
     () => [...new Set(items.map((item) => item.region))],
     [items],
@@ -645,6 +727,11 @@ export default function TopicDashboard({
         if (movieTypes.length > 0 && !movieTypes.includes(movieTypeFor(item))) return false;
         const genres = movieGenresFor(item);
         if (movieGenres.length > 0 && !movieGenres.some((genre) => genres.includes(genre))) return false;
+      } else if (domain === "indie-game") {
+        const genres = indieGameGenresFor(item);
+        if (indieGenre !== "all" && !genres.includes(indieGenre as typeof INDIE_GAME_GENRES[number])) return false;
+        const platforms = indieGamePlatformsFor(item);
+        if (indiePlatform !== "all" && !platforms.includes(indiePlatform as typeof INDIE_GAME_PLATFORMS[number])) return false;
       } else if (category !== "all" && item.category !== category) {
         return false;
       }
@@ -660,13 +747,14 @@ export default function TopicDashboard({
         ...item.tags,
         ...item.metrics.flatMap((metric) => [metric.label, metric.value]),
         ...(domain === "movie" ? [movieTypeFor(item), ...movieGenresFor(item)] : []),
+        ...(domain === "indie-game" ? [...indieGameGenresFor(item), ...indieGamePlatformsFor(item)] : []),
       ];
       return searchableFields
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [category, domain, items, movieGenres, movieTypes, query, region, status]);
+  }, [category, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
 
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
@@ -690,6 +778,7 @@ export default function TopicDashboard({
     hardware: "製品・情報一覧",
     redevelopment: "再開発案件一覧",
     movie: "作品一覧",
+    "indie-game": "ゲーム一覧",
     disaster: "災害事象一覧",
   };
 
@@ -699,6 +788,8 @@ export default function TopicDashboard({
     (domain !== "movie" && category !== "all") ||
     movieTypes.length > 0 ||
     movieGenres.length > 0 ||
+    indieGenre !== "all" ||
+    indiePlatform !== "all" ||
     region !== "all";
 
   function resetFilters() {
@@ -708,6 +799,8 @@ export default function TopicDashboard({
     setRegion("all");
     setMovieTypes([]);
     setMovieGenres([]);
+    setIndieGenre("all");
+    setIndiePlatform("all");
   }
 
   function toggleMovieType(value: MovieType) {
@@ -724,6 +817,14 @@ export default function TopicDashboard({
         ? current.filter((item) => item !== value)
         : [...current, value],
     );
+  }
+
+  function toggleIndieGenre(value: string) {
+    setIndieGenre(value);
+  }
+
+  function toggleIndiePlatform(value: string) {
+    setIndiePlatform(value);
   }
 
   function addFavoriteTheater() {
@@ -763,16 +864,23 @@ export default function TopicDashboard({
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
             {description}
           </p>
+          {domain === "indie-game" && (
+            <p className="mt-1 max-w-3xl text-[10px] leading-relaxed text-gray-500">
+              {sourceName}
+            </p>
+          )}
         </div>
         <span
           className={`shrink-0 rounded-md border px-2 py-1 text-right text-[10px] font-semibold ${
             feedMode === "live"
               ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-              : "border-amber-400/20 bg-amber-400/10 text-amber-300"
+              : feedMode === "curated"
+                ? "border-sky-400/20 bg-sky-400/10 text-sky-300"
+                : "border-amber-400/20 bg-amber-400/10 text-amber-300"
           }`}
           title={sourceName}
         >
-          {feedMode === "live" ? "実データ" : "保存データ"}
+          {feedMode === "live" ? "実データ" : feedMode === "curated" ? "収録データ" : "保存データ"}
           {updatedLabel && (
             <span className="mt-0.5 block font-normal opacity-70">
               更新 {updatedLabel}
@@ -828,38 +936,40 @@ export default function TopicDashboard({
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <div className="mb-1 text-[10px] font-semibold text-gray-500">
-              状態
-            </div>
-            <div className="flex flex-wrap gap-1">
-              <button
-                type="button"
-                onClick={() => setStatus("all")}
-                className={`rounded-md border px-2 py-1 text-[11px] ${
-                  status === "all"
-                    ? "border-white/25 bg-white/10 text-white"
-                    : "border-white/8 text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                すべて
-              </button>
-              {statuses.map(([value, label]) => (
+          {domain !== "indie-game" && (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                状態
+              </div>
+              <div className="flex flex-wrap gap-1">
                 <button
-                  key={value}
                   type="button"
-                  onClick={() => setStatus(value)}
+                  onClick={() => setStatus("all")}
                   className={`rounded-md border px-2 py-1 text-[11px] ${
-                    status === value
+                    status === "all"
                       ? "border-white/25 bg-white/10 text-white"
                       : "border-white/8 text-gray-500 hover:text-gray-300"
                   }`}
                 >
-                  {label}
+                  すべて
                 </button>
-              ))}
+                {statuses.map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setStatus(value)}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      status === value
+                        ? "border-white/25 bg-white/10 text-white"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {domain === "movie" ? (
             <div className="space-y-2 md:col-span-2">
@@ -981,6 +1091,73 @@ export default function TopicDashboard({
                 </div>
               </div>
             </div>
+          ) : domain === "indie-game" ? (
+            <>
+              <div className="md:col-span-2">
+              <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                ゲームジャンル
+              </div>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleIndieGenre("all")}
+                  className={`rounded-md border px-2 py-1 text-[11px] ${
+                    indieGenre === "all"
+                      ? "border-white/25 bg-white/10 text-white"
+                      : "border-white/8 text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  すべて
+                </button>
+                {indieGenresAvailable.map((genre) => (
+                  <button
+                    key={genre}
+                    type="button"
+                    onClick={() => toggleIndieGenre(genre)}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      indieGenre === genre
+                        ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    {genre}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                プラットフォーム
+              </div>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleIndiePlatform("all")}
+                  className={`rounded-md border px-2 py-1 text-[11px] ${
+                    indiePlatform === "all"
+                      ? "border-white/25 bg-white/10 text-white"
+                      : "border-white/8 text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  すべて
+                </button>
+                {indiePlatformsAvailable.map((platform) => (
+                  <button
+                    key={platform}
+                    type="button"
+                    onClick={() => toggleIndiePlatform(platform)}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      indiePlatform === platform
+                        ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    {platform}
+                  </button>
+                ))}
+              </div>
+              </div>
+            </>
           ) : (
             <div>
               <div className="mb-1 text-[10px] font-semibold text-gray-500">
@@ -1064,6 +1241,8 @@ export default function TopicDashboard({
             <BellRing className="h-6 w-6 text-gray-600" />
           ) : domain === "movie" ? (
             <Film className="h-6 w-6 text-gray-600" />
+          ) : domain === "indie-game" ? (
+            <Gamepad2 className="h-6 w-6 text-gray-600" />
           ) : domain === "hardware" ? (
             <Cpu className="h-6 w-6 text-gray-600" />
           ) : (

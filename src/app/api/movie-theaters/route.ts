@@ -40,7 +40,7 @@ async function fetchHtml(url: string, signal?: AbortSignal): Promise<string> {
       Accept: "text/html,application/xhtml+xml",
       "User-Agent": "SignalBoard/1.0 (+public movie theater availability reader)",
     },
-    next: { revalidate: 60 * 60 * 6 },
+    next: { revalidate: 60 * 60 * 24 },
     signal: requestSignal,
   });
   if (!response.ok) throw new Error(`映画.com returned ${response.status}`);
@@ -116,7 +116,7 @@ async function fetchTheaterOptions(prefecture: string): Promise<TheaterCandidate
 const getCachedTheaterOptions = unstable_cache(
   (prefecture: string) => fetchTheaterOptions(prefecture),
   ["signal-board-movie-theater-options-v2"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-theater-options"] },
+  { revalidate: 60 * 60 * 24, tags: ["movie-theater-options"] },
 );
 
 async function resolveTheater(
