@@ -223,7 +223,7 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20251124-toyota",
     date: "2025-11-24",
-    name: "Prime Video Boxing 12",
+    name: "Prime Video Boxing 14",
     series: "Prime Video Boxing",
     venue: "トヨタアリーナ東京",
     city: "東京",
@@ -351,9 +351,9 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20250608-ariake",
     date: "2025-06-08",
-    name: "Prime Video Boxing 11",
+    name: "Prime Video Boxing 13",
     series: "Prime Video Boxing",
-    venue: "有明アリーナ",
+    venue: "有明コロシアム",
     city: "東京",
     domestic: true,
     bouts: [

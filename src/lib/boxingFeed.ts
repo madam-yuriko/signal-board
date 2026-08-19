@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { events as curatedEvents } from "@/data/events";
 import { majorBoxingEvents } from "@/data/majorBoxingEvents";
+import { boxingResultEvents } from "@/data/boxingResultEvents";
 import {
   fetchBoxmobHistoryCards,
   fetchBoxmobSchedule,
@@ -300,7 +301,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v20-base-fighter-annotations"],
+  ["signal-board-boxing-feed-v23-complete-result-catalog"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -315,7 +316,7 @@ const getCachedEnrichedLiveBoxingFeed = unstable_cache(
       events: await enrichEventsWithResults(baseFeed.events),
     };
   },
-  ["signal-board-boxing-feed-v20-enriched-fighter-annotations"],
+  ["signal-board-boxing-feed-v23-complete-result-catalog"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -466,7 +467,10 @@ function mergeBoxmobCards(
     }
     const cardSet = selectCardSet(event, cardSets);
     if (!cardSet) return event;
-    const bouts = mergeCardResults(cardSet.bouts, event.bouts);
+    const bouts = mergeCardResults(cardSet.bouts, [
+      ...storedBoutsForEvent(event),
+      ...event.bouts,
+    ]);
     return {
       ...event,
       sourceName: "ボクシングモバイル / JBC結果",
@@ -571,17 +575,34 @@ async function loadBoxmobCardSets(
 
 function mergeStoredBouts(events: BoxingEvent[]): BoxingEvent[] {
   return events.map((event) => {
-    if (event.bouts.length > 0) return event;
-    const matches = curatedEvents.filter(
-      (stored) =>
-        stored.date === event.date && sameVenue(stored.venue, event.venue),
-    );
-    if (matches.length !== 1 || matches[0].bouts.length === 0) return event;
+    const storedBouts = storedBoutsForEvent(event);
+    if (storedBouts.length === 0) return event;
     return {
       ...event,
-      bouts: matches[0].bouts,
+      bouts: event.bouts.length > 0
+        ? mergeCardResults(event.bouts, storedBouts)
+        : storedBouts,
     };
   });
+}
+
+function storedBoutsForEvent(event: BoxingEvent): BoxingEvent["bouts"] {
+  const curated = curatedEvents
+    .filter(
+      (stored) =>
+        stored.date === event.date &&
+        (sameVenue(stored.venue, event.venue) ||
+          (stored.series && event.series && stored.series === event.series)),
+    )
+    .flatMap((stored) => stored.bouts);
+  const catalog = boxingResultEvents
+    .filter((stored) =>
+      stored.date === event.date &&
+      (seriesHint(stored.series) !== "" &&
+        seriesHint(stored.series) === seriesHint(`${event.name} ${event.series ?? ""}`)),
+    )
+    .flatMap((stored) => stored.bouts);
+  return [...curated, ...catalog];
 }
 
 function normalizeFighterName(value: string): string {
@@ -599,9 +620,29 @@ function sameFighter(left: string, right: string): boolean {
 
 function samePair(left: { jpFighter: string; opponent: string }, right: { jpFighter: string; opponent: string }): boolean {
   return (
-    (sameFighter(left.jpFighter, right.jpFighter) && sameFighter(left.opponent, right.opponent)) ||
-    (sameFighter(left.jpFighter, right.opponent) && sameFighter(left.opponent, right.jpFighter))
+    samePairInOrder(left, right) || samePairInOrder(left, {
+      jpFighter: right.opponent,
+      opponent: right.jpFighter,
+    })
   );
+}
+
+function samePairInOrder(
+  left: { jpFighter: string; opponent: string },
+  right: { jpFighter: string; opponent: string },
+): boolean {
+  return sameFighter(left.jpFighter, right.jpFighter) &&
+    sameFighter(left.opponent, right.opponent);
+}
+
+function resultForPair(
+  reference: BoxingEvent["bouts"][number],
+  target: BoxingEvent["bouts"][number],
+): BoxingEvent["bouts"][number]["result"] {
+  if (samePairInOrder(reference, target)) return reference.result;
+  if (reference.result === "win") return "loss";
+  if (reference.result === "loss") return "win";
+  return reference.result;
 }
 
 function seriesHint(value: string): string {
@@ -658,7 +699,7 @@ function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bou
           jpFighterCountry: card.jpFighterCountry ?? result.jpFighterCountry,
           opponentCountry: card.opponentCountry ?? result.opponentCountry,
           opponentGym: card.opponentGym ?? result.opponentGym,
-          result: result.result,
+          result: resultForPair(result, card),
           method: result.method,
         }
       : card;

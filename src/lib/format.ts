@@ -14,6 +14,8 @@ export const RESULT_LABEL: Record<BoutResult, string> = {
   loss: "敗北",
   draw: "引分",
   scheduled: "予定",
+  "no-contest": "無効",
+  cancelled: "中止",
 };
 
 /** 結果バッジの配色 */
@@ -22,6 +24,8 @@ export const RESULT_STYLES: Record<BoutResult, string> = {
   loss: "bg-rose-500/15 text-rose-300 border-rose-500/30",
   draw: "bg-slate-500/15 text-slate-300 border-slate-500/30",
   scheduled: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  "no-contest": "bg-slate-500/15 text-slate-300 border-slate-500/30",
+  cancelled: "bg-rose-500/15 text-rose-300 border-rose-500/30",
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];

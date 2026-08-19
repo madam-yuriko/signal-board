@@ -51,7 +51,14 @@ export function boutsForTable(
 }
 
 function resultForFighter(bout: BoutWithEvent, fighter: string): BoutResult {
-  if (bout.result === "scheduled" || bout.result === "draw") return bout.result;
+  if (
+    bout.result === "scheduled" ||
+    bout.result === "draw" ||
+    bout.result === "no-contest" ||
+    bout.result === "cancelled"
+  ) {
+    return bout.result;
+  }
   if (bout.jpFighter === fighter) return bout.result;
   return bout.result === "win" ? "loss" : "win";
 }
@@ -62,12 +69,16 @@ function resultBadge(result: BoutResult) {
     loss: "border-rose-400/30 bg-rose-400/10 text-rose-300",
     draw: "border-slate-400/30 bg-slate-400/10 text-slate-300",
     scheduled: "border-amber-400/30 bg-amber-400/10 text-amber-300",
+    "no-contest": "border-slate-400/30 bg-slate-400/10 text-slate-300",
+    cancelled: "border-rose-400/30 bg-rose-400/10 text-rose-300",
   };
   const labels: Record<BoutResult, string> = {
     win: "勝",
     loss: "敗",
     draw: "引分",
     scheduled: "予定",
+    "no-contest": "無効",
+    cancelled: "中止",
   };
   return (
     <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-bold ${styles[result]}`}>

@@ -66,6 +66,16 @@ export default function BoutRow({ bout }: { bout: Bout }) {
               引分
             </span>
           )}
+          {bout.result === "no-contest" && (
+            <span className="rounded border border-slate-400/30 bg-slate-400/10 px-1 py-0.5 text-[9px] font-bold text-slate-300">
+              無効
+            </span>
+          )}
+          {bout.result === "cancelled" && (
+            <span className="rounded border border-rose-400/30 bg-rose-400/10 px-1 py-0.5 text-[9px] font-bold text-rose-300">
+              中止
+            </span>
+          )}
         </div>
 
         {bout.notes && (

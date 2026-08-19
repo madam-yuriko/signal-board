@@ -3,8 +3,14 @@ export type Organization = "WBA" | "WBC" | "IBF" | "WBO";
 
 export const ORGANIZATIONS: Organization[] = ["WBA", "WBC", "IBF", "WBO"];
 
-// 日本側選手から見た結果。scheduled = 試合予定（未開催）
-export type BoutResult = "win" | "loss" | "draw" | "scheduled";
+// 日本側選手から見た結果。scheduled = 試合予定、no-contest = 無効試合、cancelled = 中止
+export type BoutResult =
+  | "win"
+  | "loss"
+  | "draw"
+  | "scheduled"
+  | "no-contest"
+  | "cancelled";
 
 // 1試合（カード）
 export interface Bout {
