@@ -14,6 +14,11 @@ export interface TopicMetric {
   value: string;
 }
 
+export interface TopicPrice {
+  platform: string;
+  value: string;
+}
+
 export interface TopicUpdate {
   at: string;
   text: string;
@@ -43,6 +48,8 @@ export interface TopicBoard {
   genres?: string[];
   /** Normalized platform tags used by the indie-game platform filter. */
   platforms?: string[];
+  /** Platform-specific prices extracted from the source article. */
+  prices?: TopicPrice[];
   /** Primary release date used for the indie-game card date and release-window filter. */
   releaseDate?: string;
   /** Article update date shown alongside the primary release date. */

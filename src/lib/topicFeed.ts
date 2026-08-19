@@ -14,6 +14,7 @@ import type {
   MovieType,
   TopicBoard,
   TopicDomain,
+  TopicPrice,
   TopicStatusTone,
 } from "@/types/topics";
 
@@ -34,6 +35,7 @@ interface FeedEntry {
   image?: string;
   source?: string;
   platforms?: string[];
+  prices?: TopicPrice[];
   releaseDate?: string;
   releasePlatform?: string;
   movieType?: MovieType;
@@ -388,12 +390,22 @@ function articleUpdatedDateFor(html: string, contentText: string): string | unde
 }
 
 function gameTitleFor(value: string, fallback = ""): string {
+  const labeledTitle = [value, fallback]
+    .map((text) => text.match(
+      /ゲームタイトル\s*[:：]\s*([^。！？!?]{1,120}?)(?=\s*(?:ゲームジャンル|ジャンル|開発|SteamストアURL|価格|プラットフォーム|対応言語)\s*[:：]|[。！？!?]|$)/i,
+    )?.[1].trim())
+    .find((title): title is string => Boolean(title));
+  if (labeledTitle) return labeledTitle.replace(/^[『「]|[』」]$/g, "").trim();
+
   const quotedCandidates = (text: string) => [...text.matchAll(/『([^』]+)』|「([^」]+)」/g)]
     .map((match) => ({ title: match[1] ?? match[2] ?? "", index: match.index ?? 0 }))
     .filter((candidate) => candidate.title.trim().length > 0);
   const candidates = quotedCandidates(value);
   const source = candidates.length > 0 ? value : fallback;
   const sourceCandidates = candidates.length > 0 ? candidates : quotedCandidates(fallback);
+  const likelyCandidates = sourceCandidates.filter((candidate) =>
+    !/(?:発売|配信|リリース|ローンチ|延期|中止|発表|時間前|時刻|タイトル|価格)/i.test(candidate.title),
+  );
   const releaseIndex = source.search(/発売|配信|リリース|ローンチ|launch|release/i);
   const sentenceStart = releaseIndex >= 0
     ? Math.max(
@@ -405,10 +417,9 @@ function gameTitleFor(value: string, fallback = ""): string {
     ) + 1
     : 0;
   const sameSentenceBeforeRelease = releaseIndex >= 0
-    ? sourceCandidates.filter((candidate) => candidate.index >= sentenceStart && candidate.index < releaseIndex)
+    ? likelyCandidates.filter((candidate) => candidate.index >= sentenceStart && candidate.index < releaseIndex)
     : [];
-  const selected = sameSentenceBeforeRelease[sameSentenceBeforeRelease.length - 1] ??
-    sourceCandidates[sourceCandidates.length - 1];
+  const selected = sameSentenceBeforeRelease[0] ?? likelyCandidates[0] ?? sourceCandidates[0];
   return (selected?.title ?? value)
     .replace(/\s*[【\[].*?[】\]]\s*$/g, "")
     .trim();
@@ -417,10 +428,45 @@ function gameTitleFor(value: string, fallback = ""): string {
 function indiePlatformsFor(value: string): string[] {
   const platforms: string[] = [];
   if (/Steam|steamストア|PC\s*[（(]Steam/i.test(value)) platforms.push("Steam");
-  if (/\bPS(?:5|4)\b|PlayStation|プレイステーション/i.test(value)) platforms.push("PS");
+  if (/\bPS(?:5|4)?\b|PlayStation|プレイステーション/i.test(value)) platforms.push("PS");
   if (/Nintendo\s+Switch|Switch\s*2|ニンテンドー(?:スイッチ|Switch)/i.test(value)) platforms.push("Switch");
   if (/Xbox|XBOX|Xbox Live|XBLIG/i.test(value)) platforms.push("XBOX");
   return [...new Set(platforms)];
+}
+
+const INDIE_PRICE_TOKEN = String.raw`(?:無料|(?:[¥￥]\s*)?\d+(?:,\d{3})*\s*円|[¥￥]\s*\d+(?:,\d{3})*)(?:\s*(?:\([^)]*税込[^)]*\)|（[^）]*税込[^）]*）))?`;
+const INDIE_PRICE_PLATFORM_PATTERNS: Array<[string, string]> = [
+  ["PS", String.raw`(?:\bPS(?:5|4)?\b|PlayStation(?:\s?(?:5|4))?|プレイステーション(?:5|4)?)`],
+  ["Switch", String.raw`(?:Nintendo\s+Switch|Switch\s*2|ニンテンドー(?:スイッチ|Switch))`],
+  ["XBOX", String.raw`(?:Xbox(?:\s+(?:One|Series\s*[XxSs]))?|XBOX|エックスボックス)`],
+  ["Steam", String.raw`(?:Steam|steamストア|PC\s*(?:版)?(?:\s*[（(]Steam[）)])?)`],
+];
+
+function normalizeIndiePrice(value: string): string {
+  return value.replace(/\s+/g, "").replace(/￥/g, "¥");
+}
+
+function indiePricesFor(value: string): TopicPrice[] {
+  const prices = new Map<string, string>();
+  for (const [platform, platformPattern] of INDIE_PRICE_PLATFORM_PATTERNS) {
+    const forward = new RegExp(
+      `${platformPattern}[^。！？!?\\n]{0,100}?(${INDIE_PRICE_TOKEN})`,
+      "gi",
+    );
+    const reverse = new RegExp(
+      `(${INDIE_PRICE_TOKEN})[^。！？!?\\n]{0,50}?${platformPattern}`,
+      "gi",
+    );
+    for (const match of value.matchAll(forward)) {
+      if (!prices.has(platform)) prices.set(platform, normalizeIndiePrice(match[1]));
+    }
+    for (const match of value.matchAll(reverse)) {
+      if (!prices.has(platform)) prices.set(platform, normalizeIndiePrice(match[1]));
+    }
+  }
+  return INDIE_PRICE_PLATFORM_PATTERNS
+    .map(([platform]) => ({ platform, value: prices.get(platform) }))
+    .filter((price): price is TopicPrice => Boolean(price.value));
 }
 
 type IndieReleaseCandidate = {
@@ -447,7 +493,10 @@ function indieReleasePlatformFor(value: string, dateIndex: number): string {
   })));
   return mentions
     .filter((mention) => mention.distance <= 90)
-    .sort((a, b) => a.distance - b.distance)[0]?.platform ?? "その他";
+    .sort((a, b) => {
+      const priority = indieReleasePlatformPriority(a.platform) - indieReleasePlatformPriority(b.platform);
+      return priority !== 0 ? priority : a.distance - b.distance;
+    })[0]?.platform ?? "その他";
 }
 
 function indieReleaseCandidates(value: string, articleDate?: Date): IndieReleaseCandidate[] {
@@ -459,6 +508,7 @@ function indieReleaseCandidates(value: string, articleDate?: Date): IndieRelease
     const contextEnd = Math.min(value.length, (match.index ?? 0) + match[0].length + 90);
     const context = value.slice(contextStart, contextEnd);
     if (!/(発売|配信|リリース|販売|ローンチ|launch|release)/i.test(context)) return;
+    if (/(?:発売|配信|リリース|販売)[^。！？!?]{0,20}(?:延期|中止|取りやめ)|(?:延期|中止|取りやめ)[^。！？!?]{0,20}(?:発売|配信|リリース|販売)/i.test(context)) return;
     candidates.push({
       date,
       platform: indieReleasePlatformFor(value, match.index ?? 0),
@@ -521,6 +571,7 @@ async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefine
     const displayTitle = gameTitleFor(title, contentText);
     const searchable = `${displayTitle} ${description} ${contentText}`;
     const platforms = indiePlatformsFor(searchable);
+    const prices = indiePricesFor(searchable).filter((price) => platforms.includes(price.platform));
     const articleDate = parseDate(date);
     const release = indieReleaseFor(searchable, articleDate);
     const eligible = Boolean(release) && hasJapanReleaseEvidence(searchable) && hasJapaneseSupport(searchable) && platforms.length > 0;
@@ -532,6 +583,7 @@ async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefine
       date,
       image: image ? absoluteUrl(image, entry.link) : undefined,
       platforms,
+      prices,
       genres: indieGameGenresFromText(searchable, displayTitle),
       releaseDate: release?.date.toISOString(),
       releasePlatform: release?.platform,
@@ -794,13 +846,19 @@ async function fetchIndieGames(): Promise<TopicFeed> {
       summary: entry.description || `${entry.source ?? "外部ゲームメディア"}から取得した記事です。`,
       image: imageFor("indie-game", index, entry.image),
       platforms,
+      prices: entry.prices,
       genres: entry.genres,
       metrics: [
         { label: "情報源", value: entry.source ?? "外部サイト" },
         { label: "カテゴリ", value: category },
         { label: "プラットフォーム", value: platforms.join(" / ") },
+        {
+          label: "価格",
+          value: entry.prices?.length
+            ? entry.prices.map((price) => `${price.platform}: ${price.value}`).join("\n")
+            : "記事記載なし",
+        },
         { label: "発売日", value: dateLabel(entry.releaseDate, "").trim() || "不明" },
-        { label: "発売日採用", value: entry.releasePlatform ?? "その他" },
         { label: "記事更新", value: dateLabel(entry.date, "").trim() || "不明" },
         { label: "対応言語", value: "日本語あり" },
       ],
@@ -1030,7 +1088,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-  ["signal-board-topic-feed-v33-release-window-120-genres"],
+  ["signal-board-topic-feed-v38-labeled-title-vansaba-fix"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 

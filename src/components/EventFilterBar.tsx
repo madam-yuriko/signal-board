@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw, Search } from "lucide-react";
+import { Check, RotateCcw, Search } from "lucide-react";
 import {
   activeEventFilterCount,
   EMPTY_EVENT_FILTERS,
@@ -20,14 +20,20 @@ interface Props {
   filters: EventFilters;
   onChange: (filters: EventFilters) => void;
   series: string[];
+  checkedOnly: boolean;
+  checkedCount: number;
+  onCheckedOnlyChange: (value: boolean) => void;
 }
 
 export default function EventFilterBar({
   filters,
   onChange,
   series,
+  checkedOnly,
+  checkedCount,
+  onCheckedOnlyChange,
 }: Props) {
-  const filterCount = activeEventFilterCount(filters);
+  const filterCount = activeEventFilterCount(filters) + (checkedOnly ? 1 : 0);
 
   function selectSeries(value?: string) {
     onChange({
@@ -51,10 +57,27 @@ export default function EventFilterBar({
             className="w-full rounded-md border border-white/10 bg-black/30 py-2 pl-8 pr-3 text-xs text-white outline-none placeholder:text-gray-600 focus:border-red-400/60"
           />
         </div>
+        <button
+          type="button"
+          aria-pressed={checkedOnly}
+          onClick={() => onCheckedOnlyChange(!checkedOnly)}
+          disabled={checkedCount === 0 && !checkedOnly}
+          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs transition ${
+            checkedOnly
+              ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+              : "border-white/10 text-gray-400 hover:border-emerald-300/40 hover:text-emerald-100"
+          } disabled:cursor-not-allowed disabled:opacity-40`}
+        >
+          {checkedOnly && <Check className="h-3.5 w-3.5" />}
+          観たいだけ（{checkedCount}）
+        </button>
         {filterCount > 0 && (
           <button
             type="button"
-            onClick={() => onChange(EMPTY_EVENT_FILTERS)}
+            onClick={() => {
+              onChange(EMPTY_EVENT_FILTERS);
+              onCheckedOnlyChange(false);
+            }}
             title="フィルタをリセット"
             className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-white/10 px-2.5 text-xs text-gray-400 hover:border-white/20 hover:text-white"
           >

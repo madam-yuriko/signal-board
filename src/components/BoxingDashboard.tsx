@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, Database, Trophy } from "lucide-react";
 import type { BoxingEvent } from "@/types";
@@ -24,6 +24,11 @@ import BoxingDataTable, {
   type BoxingTableView,
 } from "@/components/BoxingDataTable";
 import EntityPicker from "@/components/EntityPicker";
+import {
+  checkedCardKey,
+  readCheckedCardKeys,
+  writeCheckedCardKeys,
+} from "@/lib/checkedCards";
 
 interface Props {
   events: BoxingEvent[];
@@ -54,11 +59,32 @@ export default function BoxingDashboard({
   const [viewMode, setViewMode] = useState<DataViewMode>("cards");
   const [tableView, setTableView] = useState<BoxingTableView>("events");
   const [selectedFighter, setSelectedFighter] = useState("");
+  const [checkedCardKeys, setCheckedCardKeys] = useState<string[]>([]);
+  const [checkedCardsLoaded, setCheckedCardsLoaded] = useState(false);
+  const [checkedOnly, setCheckedOnly] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCheckedCardKeys(readCheckedCardKeys());
+      setCheckedCardsLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (checkedCardsLoaded) writeCheckedCardKeys(checkedCardKeys);
+  }, [checkedCardKeys, checkedCardsLoaded]);
 
   const eventSeries = useMemo(() => availableSeries(events), [events]);
-  const filtered = useMemo(
-    () => filterPromotionEvents(events, filters),
-    [events, filters],
+  const filtered = useMemo(() => {
+    const result = filterPromotionEvents(events, filters);
+    return checkedOnly
+      ? result.filter((event) => checkedCardKeys.includes(checkedCardKey("boxing", event.id)))
+      : result;
+  }, [checkedCardKeys, checkedOnly, events, filters]);
+  const checkedEventCount = useMemo(
+    () => events.filter((event) => checkedCardKeys.includes(checkedCardKey("boxing", event.id))).length,
+    [checkedCardKeys, events],
   );
   const filteredBouts = useMemo(() => flattenBouts(filtered), [filtered]);
   const fighterOptions = useMemo(
@@ -150,6 +176,9 @@ export default function BoxingDashboard({
         filters={filters}
         onChange={setFilters}
         series={eventSeries}
+        checkedOnly={checkedOnly}
+        checkedCount={checkedEventCount}
+        onCheckedOnlyChange={setCheckedOnly}
       />
 
       <DataViewToolbar
@@ -217,7 +246,16 @@ export default function BoxingDashboard({
         <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((event) => (
             <div key={event.id}>
-              <EventCard event={event} />
+              <EventCard
+                event={event}
+                checked={checkedCardKeys.includes(checkedCardKey("boxing", event.id))}
+                onToggleCheck={() => {
+                  const key = checkedCardKey("boxing", event.id);
+                  setCheckedCardKeys((current) => current.includes(key)
+                    ? current.filter((value) => value !== key)
+                    : [...current, key]);
+                }}
+              />
             </div>
           ))}
         </div>

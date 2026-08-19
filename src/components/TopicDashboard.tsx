@@ -5,6 +5,7 @@ import {
   BellRing,
   Building2,
   CalendarClock,
+  Check,
   ChevronDown,
   Clock3,
   Cpu,
@@ -38,6 +39,11 @@ import {
   INDIE_GAME_PLATFORMS,
   indieGamePlatformsFor,
 } from "@/lib/indieGamePlatforms";
+import {
+  checkedCardKey,
+  readCheckedCardKeys,
+  writeCheckedCardKeys,
+} from "@/lib/checkedCards";
 
 const TONE_STYLES: Record<TopicStatusTone, string> = {
   neutral: "border-white/15 bg-white/5 text-gray-300",
@@ -50,6 +56,7 @@ const TONE_STYLES: Record<TopicStatusTone, string> = {
 const MOVIE_TYPES: MovieType[] = ["邦画", "洋画", "アニメ/CG"];
 const MOVIE_INITIAL_VISIBLE_CARDS = 30;
 const NAVIGATION_START_EVENT = "signal-board:navigation-start";
+const INDIE_CHECK_SCOPE = "indie-game";
 const MOVIE_THEATER_PREFECTURES = [
   ["01", "北海道"], ["02", "青森"], ["03", "岩手"], ["04", "宮城"], ["05", "秋田"],
   ["06", "山形"], ["07", "福島"], ["08", "茨城"], ["09", "栃木"], ["10", "群馬"],
@@ -429,7 +436,17 @@ function MovieTheaterAvailability({
   );
 }
 
-function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheaters: string[] }) {
+function TopicCard({
+  item,
+  favoriteTheaters,
+  checked,
+  onToggleCheck,
+}: {
+  item: TopicBoard;
+  favoriteTheaters: string[];
+  checked: boolean;
+  onToggleCheck: () => void;
+}) {
   const [imageFailed, setImageFailed] = useState(false);
   const domain = DOMAIN_STYLES[item.domain];
 
@@ -447,38 +464,65 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
         </a>
       )}
       <div className="p-3 pb-2.5">
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          {item.domain === "movie" ? (
-            <>
-              <span className="rounded-md border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-200">
-                {movieTypeFor(item)}
-              </span>
-              {movieGenresFor(item).slice(0, 3).map((genre) => (
-                <span key={genre} className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-gray-300">
-                  {genre}
+        <div className="mb-2 flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            {item.domain === "movie" ? (
+              <>
+                <span className="rounded-md border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-200">
+                  {movieTypeFor(item)}
                 </span>
-              ))}
-            </>
-          ) : item.domain === "indie-game" ? (
-            indieGameGenresFor(item).map((genre) => (
-              <span
-                key={genre}
-                className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200"
-              >
-                {genre}
+                {movieGenresFor(item).slice(0, 3).map((genre) => (
+                  <span key={genre} className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-gray-300">
+                    {genre}
+                  </span>
+                ))}
+              </>
+            ) : item.domain === "indie-game" ? (
+              <>
+                {indieGameGenresFor(item).map((genre) => (
+                  <span
+                    key={`genre-${genre}`}
+                    className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200"
+                  >
+                    {genre}
+                  </span>
+                ))}
+                {indieGamePlatformsFor(item).map((platform) => (
+                  <span
+                    key={`platform-${platform}`}
+                    className="rounded-md border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold text-sky-200"
+                  >
+                    {platform}
+                  </span>
+                ))}
+              </>
+            ) : (
+              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-gray-300">
+                {item.category}
               </span>
-            ))
-          ) : (
-            <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-gray-300">
-              {item.category}
-            </span>
-          )}
-          {item.domain !== "indie-game" && (
-            <span
-              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${TONE_STYLES[item.statusTone]}`}
+            )}
+            {item.domain !== "indie-game" && (
+              <span
+                className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${TONE_STYLES[item.statusTone]}`}
+              >
+                {item.statusLabel}
+              </span>
+            )}
+          </div>
+          {item.domain === "indie-game" && (
+            <button
+              type="button"
+              aria-pressed={checked}
+              onClick={onToggleCheck}
+              className={`relative z-20 inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold shadow-lg backdrop-blur transition ${
+                checked
+                  ? "border-emerald-300/50 bg-emerald-400/25 text-emerald-100"
+                  : "border-white/20 bg-black/55 text-gray-200 hover:border-emerald-300/40 hover:text-emerald-100"
+              }`}
             >
-              {item.statusLabel}
-            </span>
+              {checked && <Check className="h-3.5 w-3.5" />}
+              {checked ? "買いたい済み" : "買いたい"}
+            </button>
           )}
         </div>
         <h2 className="text-xl font-bold leading-tight text-white sm:text-2xl">
@@ -533,13 +577,13 @@ function TopicCard({ item, favoriteTheaters }: { item: TopicBoard; favoriteTheat
         )}
 
         <dl className="grid grid-cols-2 border-y border-white/8">
-          {item.metrics.map((metric) => (
+          {item.metrics.filter((metric) => metric.label !== "発売日採用").map((metric) => (
             <div
               key={metric.label}
               className="border-b border-white/8 px-1 py-2 odd:border-r last:border-b-0 [&:nth-last-child(2)]:border-b-0"
             >
               <dt className="text-[10px] text-gray-500">{metric.label}</dt>
-              <dd className={`mt-0.5 text-xs font-semibold text-gray-100 ${metric.label === "メインキャスト" ? "whitespace-pre-line leading-relaxed" : ""}`}>
+                <dd className={`mt-0.5 text-xs font-semibold text-gray-100 ${metric.label === "メインキャスト" || metric.label === "価格" ? "whitespace-pre-line leading-relaxed" : ""}`}>
                 {metric.value}
               </dd>
             </div>
@@ -606,6 +650,10 @@ function formatUpdatedAt(value?: string): string | undefined {
   }).format(new Date(value));
 }
 
+function indieGameCheckKey(item: TopicBoard): string {
+  return checkedCardKey(INDIE_CHECK_SCOPE, item.sourceUrl ?? item.id);
+}
+
 export default function TopicDashboard({
   domain,
   title,
@@ -633,10 +681,25 @@ export default function TopicDashboard({
   const [viewMode, setViewMode] = useState<DataViewMode>("cards");
   const [tableView, setTableView] = useState<TopicTableView>("standard");
   const [selectedActor, setSelectedActor] = useState("");
+  const [checkedCardKeys, setCheckedCardKeys] = useState<string[]>([]);
+  const [checkedCardsLoaded, setCheckedCardsLoaded] = useState(false);
+  const [checkedOnly, setCheckedOnly] = useState(false);
 
   const domainStyle = DOMAIN_STYLES[domain];
   const DomainIcon = domainStyle.icon;
   const updatedLabel = formatUpdatedAt(updatedAt);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCheckedCardKeys(readCheckedCardKeys());
+      setCheckedCardsLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (checkedCardsLoaded) writeCheckedCardKeys(checkedCardKeys);
+  }, [checkedCardKeys, checkedCardsLoaded]);
 
   useEffect(() => {
     if (domain !== "movie") return;
@@ -718,10 +781,15 @@ export default function TopicDashboard({
     () => [...new Set(items.map((item) => item.region))],
     [items],
   );
+  const checkedItemCount = useMemo(
+    () => items.filter((item) => checkedCardKeys.includes(indieGameCheckKey(item))).length,
+    [checkedCardKeys, items],
+  );
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
+      if (domain === "indie-game" && checkedOnly && !checkedCardKeys.includes(indieGameCheckKey(item))) return false;
       if (status !== "all" && item.status !== status) return false;
       if (domain === "movie") {
         if (movieTypes.length > 0 && !movieTypes.includes(movieTypeFor(item))) return false;
@@ -754,7 +822,7 @@ export default function TopicDashboard({
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [category, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
+  }, [category, checkedCardKeys, checkedOnly, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
 
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
@@ -790,6 +858,7 @@ export default function TopicDashboard({
     movieGenres.length > 0 ||
     indieGenre !== "all" ||
     indiePlatform !== "all" ||
+    (domain === "indie-game" && checkedOnly) ||
     region !== "all";
 
   function resetFilters() {
@@ -801,6 +870,7 @@ export default function TopicDashboard({
     setMovieGenres([]);
     setIndieGenre("all");
     setIndiePlatform("all");
+    setCheckedOnly(false);
   }
 
   function toggleMovieType(value: MovieType) {
@@ -825,6 +895,13 @@ export default function TopicDashboard({
 
   function toggleIndiePlatform(value: string) {
     setIndiePlatform(value);
+  }
+
+  function toggleIndieGameCheck(item: TopicBoard) {
+    const key = indieGameCheckKey(item);
+    setCheckedCardKeys((current) => current.includes(key)
+      ? current.filter((value) => value !== key)
+      : [...current, key]);
   }
 
   function addFavoriteTheater() {
@@ -922,6 +999,22 @@ export default function TopicDashboard({
               </option>
             ))}
           </select>
+          {domain === "indie-game" && (
+            <button
+              type="button"
+              aria-pressed={checkedOnly}
+              onClick={() => setCheckedOnly((current) => !current)}
+              disabled={checkedItemCount === 0 && !checkedOnly}
+              className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs transition ${
+                checkedOnly
+                  ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+                  : "border-white/10 text-gray-400 hover:border-emerald-300/40 hover:text-emerald-100"
+              } disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              {checkedOnly && <Check className="h-3.5 w-3.5" />}
+              買いたいだけ（{checkedItemCount}）
+            </button>
+          )}
           {hasFilters && (
             <button
               type="button"
@@ -1264,7 +1357,12 @@ export default function TopicDashboard({
           <div className="gap-3 [column-fill:_balance] columns-1 sm:columns-2 xl:columns-3">
             {visibleItems.map((item) => (
               <div key={item.id} className="mb-3 break-inside-avoid">
-                <TopicCard item={item} favoriteTheaters={favoriteTheaters} />
+                <TopicCard
+                  item={item}
+                  favoriteTheaters={favoriteTheaters}
+                  checked={checkedCardKeys.includes(indieGameCheckKey(item))}
+                  onToggleCheck={() => toggleIndieGameCheck(item)}
+                />
               </div>
             ))}
           </div>
