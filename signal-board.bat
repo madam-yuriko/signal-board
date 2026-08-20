@@ -1,4 +1,5 @@
 @echo off
+title Signal Board - dev server
 cd /d "%~dp0"
 
 echo ============================================

@@ -22,6 +22,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 /.signal-board-cache/
+/.signal-board-data/
 
 # local environment files and secrets
 .env*

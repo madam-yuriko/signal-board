@@ -1,4 +1,5 @@
 @echo off
+title Signal Board - production
 cd /d "%~dp0"
 
 echo ============================================

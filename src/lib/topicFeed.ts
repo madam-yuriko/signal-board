@@ -19,6 +19,8 @@ import type {
 } from "@/types/topics";
 
 const REVALIDATE_SECONDS = 60 * 60 * 24;
+const FEED_SOFT_TIMEOUT_MS = 8_000;
+const LAST_GOOD_FEED_MAX_AGE_MS = REVALIDATE_SECONDS * 1_000;
 const FETCH_TIMEOUT_MS = 12_000;
 const EIGA_ORIGIN = "https://eiga.com";
 const FILMARKS_ORIGIN = "https://filmarks.com";
@@ -389,7 +391,7 @@ function articleUpdatedDateFor(html: string, contentText: string): string | unde
     firstMatch(contentText, /(\d{4}[年./-]\d{1,2}[月./-]\d{1,2}日?)/);
 }
 
-function gameTitleFor(value: string, fallback = ""): string {
+function gameTitleFor(value: string, fallback = "", sourceName?: string): string {
   const labeledTitle = [value, fallback]
     .map((text) => text.match(
       /ゲームタイトル\s*[:：]\s*([^。！？!?]{1,120}?)(?=\s*(?:ゲームジャンル|ジャンル|開発|SteamストアURL|価格|プラットフォーム|対応言語)\s*[:：]|[。！？!?]|$)/i,
@@ -397,15 +399,30 @@ function gameTitleFor(value: string, fallback = ""): string {
     .find((title): title is string => Boolean(title));
   if (labeledTitle) return labeledTitle.replace(/^[『「]|[』」]$/g, "").trim();
 
-  const quotedCandidates = (text: string) => [...text.matchAll(/『([^』]+)』|「([^」]+)」/g)]
-    .map((match) => ({ title: match[1] ?? match[2] ?? "", index: match.index ?? 0 }))
+  const quotedCandidates = (text: string, pattern = /『([^』]+)』|「([^」]+)」/g) => [...text.matchAll(pattern)]
+    .map((match) => ({
+      title: match[1] ?? match[2] ?? "",
+      index: match.index ?? 0,
+      end: (match.index ?? 0) + match[0].length,
+    }))
     .filter((candidate) => candidate.title.trim().length > 0);
-  const candidates = quotedCandidates(value);
+  const isAutomaton = sourceName === "AUTOMATON";
+  const candidates = isAutomaton
+    ? quotedCandidates(value, /『([^』]+)』/g)
+    : quotedCandidates(value);
   const source = candidates.length > 0 ? value : fallback;
-  const sourceCandidates = candidates.length > 0 ? candidates : quotedCandidates(fallback);
+  const sourceCandidates = candidates.length > 0
+    ? candidates
+    : isAutomaton
+      ? quotedCandidates(fallback, /『([^』]+)』/g)
+      : quotedCandidates(fallback);
   const likelyCandidates = sourceCandidates.filter((candidate) =>
     !/(?:発売|配信|リリース|ローンチ|延期|中止|発表|時間前|時刻|タイトル|価格)/i.test(candidate.title),
-  );
+  ).filter((candidate) => {
+    if (!isAutomaton) return true;
+    const suffix = source.slice(candidate.end, candidate.end + 28);
+    return !/^\s*(?:リスペクト|風|ライク|インスパイア|から影響|に影響)/i.test(suffix);
+  });
   const releaseIndex = source.search(/発売|配信|リリース|ローンチ|launch|release/i);
   const sentenceStart = releaseIndex >= 0
     ? Math.max(
@@ -419,7 +436,9 @@ function gameTitleFor(value: string, fallback = ""): string {
   const sameSentenceBeforeRelease = releaseIndex >= 0
     ? likelyCandidates.filter((candidate) => candidate.index >= sentenceStart && candidate.index < releaseIndex)
     : [];
-  const selected = sameSentenceBeforeRelease[0] ?? likelyCandidates[0] ?? sourceCandidates[0];
+  const selected = isAutomaton
+    ? sameSentenceBeforeRelease.at(-1) ?? likelyCandidates.at(-1) ?? sourceCandidates.at(-1)
+    : sameSentenceBeforeRelease[0] ?? likelyCandidates[0] ?? sourceCandidates[0];
   return (selected?.title ?? value)
     .replace(/\s*[【\[].*?[】\]]\s*$/g, "")
     .trim();
@@ -568,7 +587,7 @@ async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefine
     const date = articleUpdatedDateFor(html, contentText);
     const image = metaContent(html, "og:image") ??
       firstMatch(contentHtml, /<img\b[^>]+src=["']([^"']+)["']/i);
-    const displayTitle = gameTitleFor(title, contentText);
+    const displayTitle = gameTitleFor(title, contentText, entry.source);
     const searchable = `${displayTitle} ${description} ${contentText}`;
     const platforms = indiePlatformsFor(searchable);
     const prices = indiePricesFor(searchable).filter((price) => platforms.includes(price.platform));
@@ -778,10 +797,10 @@ async function fetchIndieGames(): Promise<TopicFeed> {
         ];
       },
     },
-    ...Array.from({ length: 8 }, (_, index) => ({
+    ...Array.from({ length: 16 }, (_, index) => ({
       source: sources[1].name,
       load: async () => {
-        const html = await fetchText(`https://automaton-media.com/page/${index + 2}/`);
+        const html = await fetchText(`https://automaton-media.com/articles/newsjp/page/${index + 1}/`);
         return parseIndieListing(html, sources[1].name, sources[1].origin, sources[1].linkPattern);
       },
     })),
@@ -1088,7 +1107,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-  ["signal-board-topic-feed-v38-labeled-title-vansaba-fix"],
+    ["signal-board-topic-feed-v40-automaton-news-pagination-history"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 
@@ -1140,15 +1159,60 @@ async function writeLastGoodFeed(domain: TopicDomain, feed: TopicFeed): Promise<
   }
 }
 
-export async function getTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
+async function touchLastGoodFeed(domain: TopicDomain): Promise<void> {
   try {
-    const feed = await getCachedTopicFeed(domain);
+    const target = path.join(LAST_GOOD_FEED_DIR, `${domain}.json`);
+    const now = new Date();
+    await fs.utimes(target, now, now);
+  } catch {
+    // Ignore unavailable or read-only cache storage.
+  }
+}
+
+async function withSoftTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function getTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
+  const persistedFeed = await readLastGoodFeed(domain);
+  if (persistedFeed) {
+    try {
+      const stat = await fs.stat(path.join(LAST_GOOD_FEED_DIR, `${domain}.json`));
+      if (Date.now() - stat.mtimeMs < LAST_GOOD_FEED_MAX_AGE_MS) return persistedFeed;
+    } catch {
+      // Fall through to a live refresh when the snapshot timestamp is unavailable.
+    }
+  }
+  const liveFeedPromise = getCachedTopicFeed(domain);
+  try {
+    const feed = await withSoftTimeout(liveFeedPromise, FEED_SOFT_TIMEOUT_MS);
+    if (!feed) {
+      if (persistedFeed) {
+        void liveFeedPromise
+          .then((freshFeed) => writeLastGoodFeed(domain, freshFeed))
+          .catch(() => undefined);
+        await touchLastGoodFeed(domain);
+        console.warn(`Live ${domain} feed is slow; using last good feed snapshot`);
+        return persistedFeed;
+      }
+      const uncappedFeed = await liveFeedPromise;
+      await writeLastGoodFeed(domain, uncappedFeed);
+      return uncappedFeed;
+    }
     await writeLastGoodFeed(domain, feed);
     return feed;
   } catch (error) {
     console.warn(`Unable to load live ${domain} feed`, error);
-    const persistedFeed = await readLastGoodFeed(domain);
     if (persistedFeed) {
+      await touchLastGoodFeed(domain);
       console.warn(`Using last good ${domain} feed snapshot`);
       return persistedFeed;
     }

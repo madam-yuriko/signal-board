@@ -40,9 +40,15 @@ import {
   indieGamePlatformsFor,
 } from "@/lib/indieGamePlatforms";
 import {
+  type CheckedCardSnapshots,
   checkedCardKey,
+  hasCheckedCardsSqliteMigration,
+  isTopicBoardSnapshot,
+  markCheckedCardsSqliteMigration,
   readCheckedCardKeys,
+  readCheckedCardSnapshots,
   writeCheckedCardKeys,
+  writeCheckedCardSnapshots,
 } from "@/lib/checkedCards";
 
 const TONE_STYLES: Record<TopicStatusTone, string> = {
@@ -682,6 +688,7 @@ export default function TopicDashboard({
   const [tableView, setTableView] = useState<TopicTableView>("standard");
   const [selectedActor, setSelectedActor] = useState("");
   const [checkedCardKeys, setCheckedCardKeys] = useState<string[]>([]);
+  const [checkedCardSnapshots, setCheckedCardSnapshots] = useState<CheckedCardSnapshots>({});
   const [checkedCardsLoaded, setCheckedCardsLoaded] = useState(false);
   const [checkedOnly, setCheckedOnly] = useState(false);
 
@@ -690,16 +697,108 @@ export default function TopicDashboard({
   const updatedLabel = formatUpdatedAt(updatedAt);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setCheckedCardKeys(readCheckedCardKeys());
-      setCheckedCardsLoaded(true);
+    if (domain !== "indie-game") {
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const loadingTimer = window.setTimeout(() => {
+      if (!cancelled) setCheckedCardsLoaded(false);
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+
+    const applyLocalFallback = () => {
+      const keys = readCheckedCardKeys();
+      const snapshots = readCheckedCardSnapshots();
+      const currentItemsByKey = new Map(items.map((item) => [indieGameCheckKey(item), item]));
+      for (const key of keys) {
+        if (key.startsWith(`${INDIE_CHECK_SCOPE}:`) && !snapshots[key]) {
+          const currentItem = currentItemsByKey.get(key);
+          if (currentItem) snapshots[key] = currentItem;
+        }
+      }
+      if (cancelled) return;
+      setCheckedCardKeys(keys);
+      setCheckedCardSnapshots(snapshots);
+      setCheckedCardsLoaded(true);
+    };
+
+    const load = async () => {
+      const legacyKeys = readCheckedCardKeys();
+      const legacySnapshots = readCheckedCardSnapshots();
+      const currentItemsByKey = new Map(items.map((item) => [indieGameCheckKey(item), item]));
+
+      try {
+        const response = await fetch(`/api/checked-cards?scope=${INDIE_CHECK_SCOPE}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("checked cards request failed");
+        const result = (await response.json()) as {
+          cards?: Array<{ key?: unknown; item?: unknown }>;
+        };
+        const stored = new Map<string, TopicBoard>();
+        for (const card of result.cards ?? []) {
+          if (typeof card.key === "string" && isTopicBoardSnapshot(card.item) && card.item.domain === "indie-game") {
+            stored.set(card.key, card.item);
+          }
+        }
+
+        if (!hasCheckedCardsSqliteMigration()) {
+          const legacyCards = legacyKeys
+            .filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`))
+            .flatMap((key) => {
+              const item = legacySnapshots[key] ?? currentItemsByKey.get(key);
+              return item?.domain === "indie-game" ? [{ key, item }] : [];
+            });
+
+          if (legacyCards.length > 0) {
+            const migrationResponse = await fetch("/api/checked-cards", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ scope: INDIE_CHECK_SCOPE, cards: legacyCards }),
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            if (!migrationResponse.ok) throw new Error("checked cards migration failed");
+            const migrationResult = (await migrationResponse.json()) as {
+              cards?: Array<{ key?: unknown; item?: unknown }>;
+            };
+            for (const card of migrationResult.cards ?? []) {
+              if (typeof card.key === "string" && isTopicBoardSnapshot(card.item) && card.item.domain === "indie-game") {
+                stored.set(card.key, card.item);
+              }
+            }
+          }
+          markCheckedCardsSqliteMigration();
+        }
+
+        if (cancelled) return;
+        setCheckedCardKeys([...stored.keys()]);
+        setCheckedCardSnapshots(Object.fromEntries(stored));
+        setCheckedCardsLoaded(true);
+      } catch (error) {
+        if (controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")) return;
+        applyLocalFallback();
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(loadingTimer);
+    };
+  }, [domain, items]);
 
   useEffect(() => {
     if (checkedCardsLoaded) writeCheckedCardKeys(checkedCardKeys);
   }, [checkedCardKeys, checkedCardsLoaded]);
+
+  useEffect(() => {
+    if (checkedCardsLoaded) writeCheckedCardSnapshots(checkedCardSnapshots);
+  }, [checkedCardSnapshots, checkedCardsLoaded]);
 
   useEffect(() => {
     if (domain !== "movie") return;
@@ -782,14 +881,33 @@ export default function TopicDashboard({
     [items],
   );
   const checkedItemCount = useMemo(
-    () => items.filter((item) => checkedCardKeys.includes(indieGameCheckKey(item))).length,
-    [checkedCardKeys, items],
+    () => domain === "indie-game"
+      ? checkedCardKeys.filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`)).length
+      : 0,
+    [checkedCardKeys, domain],
   );
+  const checkedIndieItems = useMemo(() => {
+    if (domain !== "indie-game") return [];
+    const checkedKeys = new Set(
+      checkedCardKeys.filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`)),
+    );
+    const byKey = new Map<string, TopicBoard>();
+    for (const item of items) {
+      const key = indieGameCheckKey(item);
+      if (checkedKeys.has(key)) byKey.set(key, item);
+    }
+    for (const [key, item] of Object.entries(checkedCardSnapshots)) {
+      if (checkedKeys.has(key) && !byKey.has(key) && item.domain === "indie-game") {
+        byKey.set(key, item);
+      }
+    }
+    return [...byKey.values()];
+  }, [checkedCardKeys, checkedCardSnapshots, domain, items]);
 
   const filtered = useMemo(() => {
+    if (domain === "indie-game" && checkedOnly) return checkedIndieItems;
     const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
-      if (domain === "indie-game" && checkedOnly && !checkedCardKeys.includes(indieGameCheckKey(item))) return false;
       if (status !== "all" && item.status !== status) return false;
       if (domain === "movie") {
         if (movieTypes.length > 0 && !movieTypes.includes(movieTypeFor(item))) return false;
@@ -822,7 +940,7 @@ export default function TopicDashboard({
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [category, checkedCardKeys, checkedOnly, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
+  }, [category, checkedIndieItems, checkedOnly, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
 
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
@@ -836,11 +954,14 @@ export default function TopicDashboard({
     [filtered],
   );
   const tableRows =
-    domain === "movie" && tableView === "actor"
+    domain === "indie-game"
+      ? checkedIndieItems
+      : domain === "movie" && tableView === "actor"
       ? selectedActor
         ? filtered.filter((item) => movieCast(item).includes(selectedActor))
         : []
       : filtered;
+  const displayedCount = viewMode === "table" ? tableRows.length : filtered.length;
 
   const standardTableLabels: Record<TopicDomain, string> = {
     hardware: "製品・情報一覧",
@@ -898,10 +1019,44 @@ export default function TopicDashboard({
   }
 
   function toggleIndieGameCheck(item: TopicBoard) {
+    if (!checkedCardsLoaded) return;
     const key = indieGameCheckKey(item);
-    setCheckedCardKeys((current) => current.includes(key)
+    const checked = checkedCardKeys.includes(key);
+    const previousItem = checkedCardSnapshots[key] ?? item;
+    setCheckedCardKeys((current) => checked
       ? current.filter((value) => value !== key)
       : [...current, key]);
+    setCheckedCardSnapshots((current) => {
+      const next = { ...current };
+      if (checked) delete next[key];
+      else next[key] = item;
+      return next;
+    });
+
+    const request = checked
+      ? fetch(`/api/checked-cards?scope=${INDIE_CHECK_SCOPE}&key=${encodeURIComponent(key)}`, {
+          method: "DELETE",
+          cache: "no-store",
+        })
+      : fetch("/api/checked-cards", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: INDIE_CHECK_SCOPE, key, item }),
+          cache: "no-store",
+        });
+    void request.then((response) => {
+      if (!response.ok) throw new Error("checked card update failed");
+    }).catch(() => {
+      setCheckedCardKeys((current) => checked
+        ? (current.includes(key) ? current : [...current, key])
+        : current.filter((value) => value !== key));
+      setCheckedCardSnapshots((current) => {
+        const next = { ...current };
+        if (checked) next[key] = previousItem;
+        else delete next[key];
+        return next;
+      });
+    });
   }
 
   function addFavoriteTheater() {
@@ -1304,7 +1459,9 @@ export default function TopicDashboard({
                 }
                 className="h-7 rounded-md border border-white/10 bg-[#101018] px-2 text-[11px] text-gray-300 outline-none focus:border-white/25"
               >
-                <option value="standard">{standardTableLabels[domain]}</option>
+                <option value="standard">
+                  {domain === "indie-game" ? "買いたい履歴" : standardTableLabels[domain]}
+                </option>
                 {domain === "movie" && (
                   <>
                     <option value="rating">評価ランキング</option>
@@ -1328,7 +1485,7 @@ export default function TopicDashboard({
         )}
       </DataViewToolbar>
 
-      {filtered.length === 0 ? (
+      {displayedCount === 0 ? (
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-12 text-center text-gray-400">
           {domain === "disaster" ? (
             <BellRing className="h-6 w-6 text-gray-600" />
@@ -1341,7 +1498,11 @@ export default function TopicDashboard({
           ) : (
             <Building2 className="h-6 w-6 text-gray-600" />
           )}
-          <p className="text-sm">条件に一致するボードがありません。</p>
+          <p className="text-sm">
+            {domain === "indie-game" && viewMode === "table"
+              ? "買いたい履歴はありません。"
+              : "条件に一致するボードがありません。"}
+          </p>
           <button
             type="button"
             onClick={resetFilters}
