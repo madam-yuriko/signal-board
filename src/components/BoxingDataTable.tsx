@@ -5,14 +5,18 @@ import type { BoutWithEvent } from "@/lib/filters";
 import { formatShortDate, isEventUpcoming } from "@/lib/format";
 import DataTable, { type DataTableColumn } from "@/components/DataTable";
 import OrgBadge from "@/components/OrgBadge";
-import { fighterAnnotation } from "@/lib/fighterInfo";
+import { fighterAnnotation, sameFighterName } from "@/lib/fighterInfo";
 
 export type BoxingTableView = "events" | "bouts" | "world" | "fighter";
 
 export function availableFighters(bouts: BoutWithEvent[]): string[] {
-  return [...new Set(bouts.flatMap((bout) => [bout.jpFighter, bout.opponent]))]
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, "ja"));
+  const names = new Map<string, string>();
+  for (const name of bouts.flatMap((bout) => [bout.jpFighter, bout.opponent])) {
+    if (!name) continue;
+    const key = name.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    if (!names.has(key)) names.set(key, name);
+  }
+  return [...names.values()].sort((a, b) => a.localeCompare(b, "ja"));
 }
 
 export function isWorldTitleBout(bout: BoutWithEvent): boolean {
@@ -41,9 +45,9 @@ export function boutsForTable(
     return bouts.filter(isWorldTitleBout);
   }
   if (view === "fighter") {
-    return fighter
+      return fighter
       ? bouts.filter(
-          (bout) => bout.jpFighter === fighter || bout.opponent === fighter,
+          (bout) => sameFighterName(bout.jpFighter, fighter) || sameFighterName(bout.opponent, fighter),
         )
       : [];
   }
@@ -59,7 +63,7 @@ function resultForFighter(bout: BoutWithEvent, fighter: string): BoutResult {
   ) {
     return bout.result;
   }
-  if (bout.jpFighter === fighter) return bout.result;
+  if (sameFighterName(bout.jpFighter, fighter)) return bout.result;
   return bout.result === "win" ? "loss" : "win";
 }
 
@@ -188,7 +192,7 @@ function boutColumns(
           id: "opponent",
           label: "対戦相手",
           render: (bout) =>
-            bout.jpFighter === selectedFighter
+            sameFighterName(bout.jpFighter, selectedFighter)
               ? fighterLabel(bout.opponent, {
                   country: bout.opponentCountry,
                   gym: bout.opponentGym,
@@ -198,7 +202,7 @@ function boutColumns(
                   gym: bout.jpFighterGym,
                 }),
           sortValue: (bout) =>
-            bout.jpFighter === selectedFighter ? bout.opponent : bout.jpFighter,
+            sameFighterName(bout.jpFighter, selectedFighter) ? bout.opponent : bout.jpFighter,
           className: "min-w-32 font-semibold text-white",
         }
       : {
@@ -226,7 +230,7 @@ function boutColumns(
         },
     {
       id: "result",
-      label: fighterView ? "戦績" : "結果（日本側）",
+      label: fighterView ? "結果・予定" : "結果（日本側）",
       render: (bout) =>
         resultBadge(
           fighterView ? resultForFighter(bout, selectedFighter) : bout.result,
@@ -324,7 +328,7 @@ export default function BoxingDataTable({
       defaultSort={{ columnId: "date", direction: "desc" }}
       emptyMessage={
         view === "fighter" && !selectedFighter
-          ? "選手を選択すると、現在収録している試合だけで戦績を表示します。"
+          ? "選手を選択すると、過去の試合結果と今後の試合予定を同じ表で表示します。"
           : "現在の条件に一致する試合がありません。"
       }
     />

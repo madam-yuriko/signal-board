@@ -53,11 +53,17 @@ const COUNTRY_ALIASES: Record<string, string> = {
   "ドミニカ共和国": "ドミニカ共和国",
 };
 
-function normalizeFighterName(value: string): string {
+export function normalizeFighterName(value: string): string {
   return value
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+export function sameFighterName(left: string, right: string): boolean {
+  const a = normalizeFighterName(left);
+  const b = normalizeFighterName(right);
+  return a.length > 0 && a === b;
 }
 
 const KNOWN_FIGHTER_INFO = new Map<string, FighterInfo>(

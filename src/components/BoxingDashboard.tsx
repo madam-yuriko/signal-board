@@ -24,6 +24,7 @@ import BoxingDataTable, {
   type BoxingTableView,
 } from "@/components/BoxingDataTable";
 import EntityPicker from "@/components/EntityPicker";
+import { normalizeFighterName } from "@/lib/fighterInfo";
 import {
   checkedCardKey,
   readCheckedCardKeys,
@@ -87,10 +88,18 @@ export default function BoxingDashboard({
     [checkedCardKeys, events],
   );
   const filteredBouts = useMemo(() => flattenBouts(filtered), [filtered]);
+  const allBouts = useMemo(() => flattenBouts(events), [events]);
   const fighterOptions = useMemo(
-    () => availableFighters(filteredBouts),
-    [filteredBouts],
+    () => availableFighters(allBouts),
+    [allBouts],
   );
+  const fighterMatches = useMemo(() => {
+    const query = normalizeFighterName(filters.query);
+    if (!query) return [];
+    return fighterOptions
+      .filter((name) => normalizeFighterName(name).includes(query))
+      .slice(0, 12);
+  }, [filters.query, fighterOptions]);
   const tableBouts = useMemo(
     () => boutsForTable(filteredBouts, tableView, selectedFighter),
     [filteredBouts, selectedFighter, tableView],
@@ -205,7 +214,7 @@ export default function BoxingDashboard({
                 <option value="events">興行一覧</option>
                 <option value="bouts">全試合一覧</option>
                 <option value="world">世界戦一覧</option>
-                <option value="fighter">選手別戦績</option>
+                <option value="fighter">選手別結果・予定</option>
               </select>
             </label>
             {tableView === "fighter" && (
@@ -223,6 +232,25 @@ export default function BoxingDashboard({
         )}
       </DataViewToolbar>
 
+      {viewMode === "table" && tableView === "fighter" && !selectedFighter && fighterMatches.length > 0 && (
+        <section className="glass-card flex flex-wrap items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-gray-400">
+          <span className="mr-1">「{filters.query}」に一致する選手を選択：</span>
+          {fighterMatches.map((fighter) => (
+            <button
+              key={fighter}
+              type="button"
+              onClick={() => {
+                setSelectedFighter(fighter);
+                setFilters((current) => ({ ...current, query: "" }));
+              }}
+              className="rounded-md border border-red-400/30 bg-red-400/10 px-2 py-1 text-[11px] text-red-200 hover:border-red-300/60 hover:text-white"
+            >
+              {fighter}
+            </button>
+          ))}
+        </section>
+      )}
+
       {filtered.length === 0 ? (
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-10 text-center text-gray-400">
           <CalendarClock className="h-6 w-6 text-gray-600" />
@@ -236,12 +264,19 @@ export default function BoxingDashboard({
           </button>
         </div>
       ) : viewMode === "table" ? (
-        <BoxingDataTable
-          view={tableView}
-          events={filtered}
-          bouts={tableBouts}
-          selectedFighter={selectedFighter}
-        />
+        <>
+          {tableView === "fighter" && selectedFighter && (
+            <div className="rounded-md border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-100/80">
+              {selectedFighter}の過去の試合結果と今後の試合予定を同じ表に表示しています。
+            </div>
+          )}
+          <BoxingDataTable
+            view={tableView}
+            events={filtered}
+            bouts={tableBouts}
+            selectedFighter={selectedFighter}
+          />
+        </>
       ) : (
         <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((event) => (

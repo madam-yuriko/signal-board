@@ -54,6 +54,11 @@ export interface BoxingEvent {
   status?: "scheduled" | "finished";
   /** 興行名 */
   name: string;
+  /**
+   * 興行名の確度。JBCのプロモーター情報から推測した場合は inferred。
+   * 公式名称を取得できた場合は official。
+   */
+  nameStatus?: "official" | "inferred";
   /** Event series / promotion name used for grouping and filtering. */
   series?: string;
   /** 会場 */

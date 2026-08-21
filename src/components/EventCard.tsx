@@ -44,6 +44,11 @@ export default function EventCard({
                 {event.series}
               </div>
             )}
+            {event.nameStatus === "inferred" && (
+              <div className="mt-1 inline-flex rounded-md border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[10px] font-semibold text-rose-200">
+                興行名未確定
+              </div>
+            )}
 
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-400">
               <span className="flex items-center gap-1">

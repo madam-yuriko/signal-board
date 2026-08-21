@@ -124,8 +124,9 @@ export const majorBoxingEvents: MajorEvent[] = [
   event("lifetime-30", "2025-12-31", "Lifetime Boxing Fights 30", "Lifetime Boxing Fights", "大田区総合体育館", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
   event("lifetime-31", "2026-03-09", "Lifetime Boxing Fights 31", "Lifetime Boxing Fights", "後楽園ホール", "東京", "Lifetime Boxing Fights", LIFETIME_HISTORY),
 
-  // 2026-07-14は志成主催だが、公式上はLBFではなくPhoenix Battle 158。
+  // 志成主催でも、公式上はLBFではなくPhoenix Battle名義の興行がある。
   event("phoenix-158", "2026-07-14", "Lemino BOXING フェニックスバトル 158", "Phoenix Battle", "後楽園ホール", "東京", "Lemino", "https://www.lifetime-boxing-fights.tdc.ne.jp/"),
+  event("phoenix-159", "2026-08-19", "Lemino BOXING PHOENIX BATTLE 159", "Phoenix Battle", "後楽園ホール", "東京", "Lemino", "https://www.lifetime-boxing-fights.tdc.ne.jp/"),
 
   // 3150FIGHT（公式試合結果一覧）
   event("3150-survival-0", "2022-05-14", "3150FIGHT ～SURVIVAL～ vol.0", "3150 FIGHT", "176BOX", "大阪", "3150FIGHT", FIGHT_3150_HISTORY),

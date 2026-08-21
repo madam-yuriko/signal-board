@@ -290,6 +290,7 @@ async function loadEvent(
     date: `${year}-${String(entry.month).padStart(2, "0")}-${String(entry.day).padStart(2, "0")}`,
     status,
     name: entry.name,
+    nameStatus: "official",
     series: seriesForName(entry.name),
     venue: entry.venue,
     city: cityForVenue(entry.venue),
@@ -308,15 +309,28 @@ async function loadCardSet(
   year: number,
   detailTimeoutMs = HISTORY_DETAIL_TIMEOUT_MS,
 ): Promise<BoxmobCardSet> {
-  const detailsUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
+  const publicScheduleUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
+  const resultUrl = `https://boxmob.jp/sp/flash/index.html?sid=${entry.sid}&f=1`;
+  const sources = [
+    [publicScheduleUrl, "公開スケジュール"],
+    [resultUrl, "試合結果"],
+  ] as const;
   let bouts: Bout[] = [];
-  try {
-    bouts = parseBouts(
-      await fetchShiftJis(detailsUrl, detailTimeoutMs),
-      `boxmob-${entry.sid}`,
-    );
-  } catch (error) {
-    console.warn(`Unable to load Boxing Mobile historical card ${entry.sid}`, error);
+  let detailsUrl = publicScheduleUrl;
+
+  for (const [url, label] of sources) {
+    try {
+      bouts = parseBouts(
+        await fetchShiftJis(url, detailTimeoutMs),
+        `boxmob-${entry.sid}`,
+      );
+      if (bouts.length > 0) {
+        detailsUrl = url;
+        break;
+      }
+    } catch (error) {
+      console.warn(`Unable to load Boxing Mobile historical ${label} ${entry.sid}`, error);
+    }
   }
   return {
     sid: entry.sid,
@@ -363,6 +377,7 @@ export async function fetchBoxmobHistoryCards(
       if (series === "prime") return /prime\s*video/.test(normalizedName);
       if (series === "dynamic-glove") return /dynamic\s*glove|ダイナミック/.test(normalizedName);
       if (series === "lifetime") return /life\s*time|lifetime/.test(normalizedName);
+      if (series === "phoenix") return /phoenix\s*battle|フェニックス[\s・･]*バトル/.test(normalizedName);
       return true;
     });
   });
@@ -378,7 +393,7 @@ export async function fetchBoxmobHistoryCards(
       }
     }),
   );
-  return results.filter((result) => result.bouts.length > 0);
+  return results.filter((result) => result.bouts.length > 0 || result.name.trim().length > 0);
 }
 
 export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
@@ -395,6 +410,7 @@ export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
     date: `${eventYear(entry.month, entry.day, now)}-${String(entry.month).padStart(2, "0")}-${String(entry.day).padStart(2, "0")}`,
     status: "scheduled",
     name: entry.name,
+    nameStatus: "official",
     series: seriesForName(entry.name),
     venue: entry.venue,
     city: cityForVenue(entry.venue),
@@ -413,7 +429,6 @@ export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
       return leftPriority - rightPriority;
     })
     .slice(0, SCHEDULE_CARD_LIMIT);
-  const indexes = new Map(cardEntries.map((entry, index) => [entry.sid, index]));
   let cursor = 0;
   await Promise.all(
     Array.from({ length: Math.min(FETCH_CONCURRENCY, cardEntries.length) }, async () => {
