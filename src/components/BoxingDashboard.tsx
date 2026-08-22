@@ -278,9 +278,9 @@ export default function BoxingDashboard({
           />
         </>
       ) : (
-        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="responsive-card-grid">
           {filtered.map((event) => (
-            <div key={event.id}>
+            <div key={event.id} className="min-w-0">
               <EventCard
                 event={event}
                 checked={checkedCardKeys.includes(checkedCardKey("boxing", event.id))}

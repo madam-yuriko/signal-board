@@ -9,6 +9,7 @@ import { hardware } from "@/data/hardware";
 import { indieGames } from "@/data/indieGames";
 import { movies } from "@/data/movies";
 import { redevelopments } from "@/data/redevelopments";
+import { redevelopmentSpotlights } from "@/data/redevelopmentSpotlights";
 import { indieGameGenresFromText } from "@/lib/indieGameGenres";
 import type {
   MovieType,
@@ -27,6 +28,10 @@ const FILMARKS_ORIGIN = "https://filmarks.com";
 const MOVIE_UPCOMING_DAYS = 90;
 const INDIE_GAME_MAX_ITEMS = 120;
 const INDIE_GAME_RELEASE_WINDOW_YEARS = 1;
+const TOKYO_REDEVELOPMENT_INDEX =
+  "https://www.toshiseibi.metro.tokyo.lg.jp/machizukuri/shigaichi_seibi/sai-kai/saikaihatsu";
+const SAPPORO_REDEVELOPMENT_INDEX =
+  "https://www.city.sapporo.jp/toshi/saikaihatsu/redevelopment/jigyo/index.html";
 const LAST_GOOD_FEED_DIR = path.join(process.cwd(), ".signal-board-cache", "topic-feed");
 
 interface FeedEntry {
@@ -47,6 +52,21 @@ interface FeedEntry {
   genreSources?: string[];
   director?: string;
   cast?: string[];
+}
+
+interface RedevelopmentListEntry {
+  title: string;
+  location: string;
+  region: "東京" | "北海道";
+  area?: string;
+  executor?: string;
+  decisionDate?: string;
+  approvalDate?: string;
+  progress?: string;
+  businessPeriod?: string;
+  uses?: string;
+  sourceUrl: string;
+  category: string;
 }
 
 export interface TopicFeed {
@@ -104,6 +124,201 @@ function plainText(value: string): string {
 
 function firstMatch(value: string, pattern: RegExp): string | undefined {
   return value.match(pattern)?.[1];
+}
+
+function htmlCells(row: string): string[] {
+  return [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) =>
+    plainText(match[1]).replace(/-->/g, "").trim(),
+  );
+}
+
+function hrefIn(value: string, baseUrl: string): string | undefined {
+  const href = firstMatch(value, /<a\b[^>]+href=["']([^"']+)["']/i);
+  if (!href) return undefined;
+  try {
+    return new URL(decodeHtml(href), baseUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function stripLeadingDigits(value: string): string {
+  return value.replace(/^[0-9０-９]+/, "").trim();
+}
+
+function isTableFor(headers: string[], required: string[]): boolean {
+  const text = headers.join(" ");
+  return required.every((header) => text.includes(header));
+}
+
+function parseTokyoRedevelopmentList(html: string): RedevelopmentListEntry[] {
+  const tables = [...html.matchAll(/<table\b[^>]*>([\s\S]*?)<\/table>/gi)]
+    .map((match) => match[1])
+    .filter((table) => {
+      const header = htmlCells(firstMatch(table, /(<tr\b[\s\S]*?<\/tr>)/i) ?? "");
+      return isTableFor(header, ["地区名", "施行者", "進捗状況"]);
+    });
+  const entries: RedevelopmentListEntry[] = [];
+
+  for (const table of tables) {
+    let currentLocation = "東京都";
+    const rows = [...table.matchAll(/<tr\b[\s\S]*?<\/tr>/gi)].map((match) => match[0]);
+    for (const row of rows) {
+      const cells = htmlCells(row);
+      if (cells.length < 8 || cells.some((cell) => cell.includes("地区名"))) continue;
+
+      let offset = 0;
+      const firstCellLocation = stripLeadingDigits(cells[0]);
+      if (cells.length >= 9 && /(区|市)$/.test(firstCellLocation)) {
+        currentLocation = firstCellLocation;
+        offset = 1;
+      }
+
+      const title = cells[offset + 1]
+        ?.replace(/[※＊]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!title || /^地区名$/.test(title)) continue;
+
+      const detailUrl = hrefIn(row, TOKYO_REDEVELOPMENT_INDEX);
+      entries.push({
+        title,
+        location: currentLocation,
+        region: "東京",
+        area: cells[offset + 3],
+        executor: cells[offset + 2],
+        decisionDate: cells[offset + 4],
+        approvalDate: cells[offset + 5],
+        progress: cells[offset + 6],
+        sourceUrl: detailUrl ?? TOKYO_REDEVELOPMENT_INDEX,
+        category: "市街地再開発",
+      });
+    }
+  }
+
+  return entries;
+}
+
+function parseSapporoRedevelopmentList(html: string): RedevelopmentListEntry[] {
+  const tables = [...html.matchAll(/<table\b[^>]*>([\s\S]*?)<\/table>/gi)]
+    .map((match) => match[1])
+    .filter((table) => {
+      const header = htmlCells(firstMatch(table, /(<tr\b[\s\S]*?<\/tr>)/i) ?? "");
+      return isTableFor(header, ["地区名", "事業年度"]);
+    });
+  const entries: RedevelopmentListEntry[] = [];
+
+  for (const table of tables) {
+    const headerRow = firstMatch(table, /(<tr\b[\s\S]*?<\/tr>)/i) ?? "";
+    const headers = htmlCells(headerRow);
+    const isActiveTable = headers.some((header) => header.includes("事業進捗状況"));
+    const isPriorityBuildingTable = headers.some((header) => header.includes("タイプ"));
+    const rows = [...table.matchAll(/<tr\b[\s\S]*?<\/tr>/gi)].map((match) => match[0]);
+
+    for (const row of rows) {
+      const cells = htmlCells(row);
+      const title = cells[0]?.replace(/\s+/g, " ").trim();
+      if (cells.length < 5 || !title || title.includes("地区名")) continue;
+
+      const progress = isActiveTable ? cells[1] : "完了";
+      const addressIndex = isActiveTable ? 2 : 1;
+      const executorIndex = isActiveTable ? 3 : 2;
+      const periodIndex = isActiveTable ? 4 : 3;
+      const usesIndex = isActiveTable ? 5 : 4;
+      const uses = cells[usesIndex];
+      const commercialProject = /商業|店舗|事務所|業務|ホテル|劇場|シアター|市場|バスターミナル/i.test(uses ?? "");
+      if (!commercialProject) continue;
+
+      entries.push({
+        title,
+        location: cells[addressIndex] ?? "札幌市",
+        region: "北海道",
+        executor: cells[executorIndex],
+        businessPeriod: cells[periodIndex],
+        progress,
+        uses,
+        sourceUrl: hrefIn(row, SAPPORO_REDEVELOPMENT_INDEX) ?? SAPPORO_REDEVELOPMENT_INDEX,
+        category: isPriorityBuildingTable ? "優良建築物等整備" : "市街地再開発",
+      });
+    }
+  }
+
+  return entries;
+}
+
+function redevelopmentStatus(progress: string | undefined): {
+  status: string;
+  statusLabel: string;
+  statusTone: TopicStatusTone;
+} {
+  if (/完了|竣工/.test(progress ?? "")) {
+    return { status: "completed", statusLabel: "事業完了", statusTone: "success" };
+  }
+  if (/工事中|事業中/.test(progress ?? "")) {
+    return { status: "construction", statusLabel: "事業中", statusTone: "warning" };
+  }
+  return { status: "planning", statusLabel: "計画中", statusTone: "neutral" };
+}
+
+function redevelopmentArea(entry: RedevelopmentListEntry): string {
+  if (entry.region === "北海道") {
+    return /中央区/.test(entry.location) ? "札幌中央区" : "札幌その他";
+  }
+
+  const searchable = `${entry.location} ${entry.title}`;
+  if (/新宿|西新宿|歌舞伎町|大久保|高田馬場|四谷/.test(searchable)) return "新宿";
+  if (/丸の内|大手町|八重洲|日本橋|有楽町|東京駅|兜町|京橋/.test(searchable)) return "丸の内・東京駅";
+  if (/渋谷|恵比寿|代官山|原宿|表参道|青山|神宮前/.test(searchable)) return "渋谷";
+  if (/品川|高輪|田町|芝浦|大崎|五反田/.test(searchable)) return "品川・高輪";
+  return "その他東京";
+}
+
+function redevelopmentCardId(entry: RedevelopmentListEntry, index: number): string {
+  const key = `${entry.region}-${entry.location}-${entry.title}`
+    .normalize("NFKC")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return `live-redevelopment-${key || index}`;
+}
+
+function redevelopmentCard(entry: RedevelopmentListEntry, index: number): TopicBoard {
+  const status = redevelopmentStatus(entry.progress);
+  const uses = entry.uses ?? "詳細資料を参照";
+  const progress = entry.progress ?? "公式一覧掲載";
+  const period = entry.businessPeriod ? `事業年度 ${entry.businessPeriod}` : progress;
+  const isCompleted = status.status === "completed";
+  const commercialScale = /商業|店舗|事務所|業務|ホテル|劇場|シアター|市場|バスターミナル/i.test(uses)
+    ? uses
+    : "公表資料なし";
+
+  return {
+    id: redevelopmentCardId(entry, index),
+    domain: "redevelopment",
+    title: entry.title,
+    category: entry.category,
+    status: status.status,
+    statusLabel: status.statusLabel,
+    statusTone: status.statusTone,
+    dateLabel: isCompleted ? `事業完了 ${progress}` : period,
+    location: entry.location,
+    region: entry.region,
+    area: redevelopmentArea(entry),
+    summary: `${entry.region}${entry.location}の公式再開発地区一覧に掲載されている案件です。${uses !== "詳細資料を参照" ? `主な用途は${uses}。` : "詳細な用途・規模は公式資料を参照してください。"}`,
+    image: imageFor("redevelopment", index),
+    metrics: [
+      { label: "地区面積", value: entry.area ?? "公表資料なし" },
+      { label: "施行者", value: entry.executor ?? "公表資料なし" },
+      { label: "主な用途", value: uses },
+      { label: "商業規模", value: commercialScale },
+      { label: "テナント数", value: "公表資料なし" },
+      ...(entry.decisionDate ? [{ label: "都市計画決定", value: entry.decisionDate }] : []),
+      ...(entry.approvalDate ? [{ label: "事業計画認可", value: entry.approvalDate }] : []),
+    ],
+    updates: [{ at: "公式一覧", text: progress }],
+    tags: [entry.region, entry.category, entry.executor ?? "施行者未公表"],
+    sourceUrl: entry.sourceUrl,
+  };
 }
 
 const MOVIE_GENRE_RULES: Array<[string, RegExp]> = [
@@ -710,38 +925,26 @@ async function fetchHardware(): Promise<TopicFeed> {
 }
 
 async function fetchRedevelopment(): Promise<TopicFeed> {
-  const html = await fetchText("https://www.toshiseibi.metro.tokyo.lg.jp/information/press");
-  const entries: FeedEntry[] = [...html.matchAll(/<li class="widget-information-content_info-list-date-list-item">([\s\S]*?)<\/li>/gi)].flatMap((match) => {
-    const block = match[1];
-    const title = firstMatch(block, /<a[^>]+class="widget-information-content_info-list-link"[^>]*>([\s\S]*?)<\/a>/i);
-    const link = firstMatch(block, /<a[^>]+class="widget-information-content_info-list-link"[^>]+href="([^"]+)"/i);
-    const date = firstMatch(block, /<time[^>]*>([\s\S]*?)<\/time>/i);
-    return title ? [{ title: plainText(title), link, date }] : [];
-  }).filter((entry) => /再開発|整備|駅|都市|建設|住宅|道路|地下化|耐震|無電柱|まち/i.test(entry.title));
-  if (entries.length === 0) throw new Error("No redevelopment press entries");
-  const items = entries.slice(0, 24).map((entry, index): TopicBoard => ({
-    id: `live-redevelopment-${index}-${entry.link ?? entry.title}`,
-    domain: "redevelopment",
-    title: entry.title,
-    category: "都市整備局発表",
-    status: "updated",
-    statusLabel: "最新更新",
-    statusTone: "info",
-    dateLabel: dateLabel(entry.date),
-    location: "東京都",
-    region: "東京",
-    summary: "東京都都市整備局の報道発表から、都市整備・再開発に関係する更新を取得しました。",
-    image: imageFor("redevelopment", index),
-    metrics: [
-      { label: "発表元", value: "東京都都市整備局" },
-      { label: "更新日", value: dateLabel(entry.date, "").trim() || "最新" },
-      { label: "地域", value: "東京" },
-      { label: "状態", value: "公式発表" },
-    ],
-    updates: [{ at: dateLabel(entry.date, "").trim() || "最新", text: entry.title }],
-    tags: ["東京都", "都市整備局", "公式発表"],
-  }));
-  return { items, mode: "live", sourceName: "東京都都市整備局 報道発表", updatedAt: updatedAt(entries) };
+  const results = await Promise.allSettled([
+    fetchText(TOKYO_REDEVELOPMENT_INDEX),
+    fetchText(SAPPORO_REDEVELOPMENT_INDEX),
+  ]);
+  const entries = results.flatMap((result, index) => {
+    if (result.status !== "fulfilled") return [];
+    return index === 0
+      ? parseTokyoRedevelopmentList(result.value)
+      : parseSapporoRedevelopmentList(result.value);
+  });
+  const uniqueEntries = [...new Map(
+    entries.map((entry) => [`${entry.region}-${entry.location}-${entry.title}`, entry]),
+  ).values()];
+  if (uniqueEntries.length === 0) throw new Error("No redevelopment project entries");
+
+  return {
+    items: [...uniqueEntries.map(redevelopmentCard), ...redevelopmentSpotlights],
+    mode: "live",
+    sourceName: "東京都・札幌市 公式再開発地区一覧 / 全国注目プロジェクト選定",
+  };
 }
 
 function indieCategoryFor(value: string): string {
@@ -1107,7 +1310,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-    ["signal-board-topic-feed-v40-automaton-news-pagination-history"],
+    ["signal-board-topic-feed-v43-redevelopment-area-tabs"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 
@@ -1139,6 +1342,11 @@ async function readLastGoodFeed(domain: TopicDomain): Promise<TopicFeed | undefi
     const value = await fs.readFile(path.join(LAST_GOOD_FEED_DIR, `${domain}.json`), "utf8");
     const feed = JSON.parse(value) as TopicFeed;
     if (feed.mode !== "live" || !Array.isArray(feed.items) || feed.items.length === 0) return undefined;
+    // Redevelopment must not fall back to the old press-release snapshot,
+    // but a snapshot generated from the official project lists is valid.
+    if (domain === "redevelopment" && feed.sourceName !== "東京都・札幌市 公式再開発地区一覧 / 全国注目プロジェクト選定") {
+      return undefined;
+    }
     if (domain === "indie-game" && feed.items.some((item) => !item.releaseDate || !Array.isArray(item.genres))) return undefined;
     return feed;
   } catch {
@@ -1216,16 +1424,18 @@ export async function getTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
       console.warn(`Using last good ${domain} feed snapshot`);
       return persistedFeed;
     }
-    for (const cacheKey of LEGACY_TOPIC_FEED_CACHE_KEYS) {
-      try {
-        const staleFeed = await getLegacyCachedTopicFeed(cacheKey)(domain);
-        if (staleFeed.mode === "live" && staleFeed.items.length > 0 &&
-          (domain !== "indie-game" || staleFeed.items.every((item) => Boolean(item.releaseDate) && Array.isArray(item.genres)))) {
-          console.warn(`Using stale ${domain} feed cache ${cacheKey}`);
-          return staleFeed;
+    if (domain !== "redevelopment") {
+      for (const cacheKey of LEGACY_TOPIC_FEED_CACHE_KEYS) {
+        try {
+          const staleFeed = await getLegacyCachedTopicFeed(cacheKey)(domain);
+          if (staleFeed.mode === "live" && staleFeed.items.length > 0 &&
+            (domain !== "indie-game" || staleFeed.items.every((item) => Boolean(item.releaseDate) && Array.isArray(item.genres)))) {
+            console.warn(`Using stale ${domain} feed cache ${cacheKey}`);
+            return staleFeed;
+          }
+        } catch {
+          // Try the next legacy cache before falling back to saved data.
         }
-      } catch {
-        // Try the next legacy cache before falling back to saved data.
       }
     }
     return {

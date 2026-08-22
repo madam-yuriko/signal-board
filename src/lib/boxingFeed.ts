@@ -454,6 +454,36 @@ function isGenericEventName(event: BoxingEvent): boolean {
   return name === series || /興行$/.test(name);
 }
 
+function isGenericJbcEventForKnownEvent(
+  candidate: BoxingEvent,
+  curated: BoxingEvent,
+): boolean {
+  return (
+    candidate.sourceName === "JBC" &&
+    candidate.nameStatus === "inferred" &&
+    isGenericEventName(candidate) &&
+    candidate.date === curated.date &&
+    sameVenue(candidate.venue, curated.venue)
+  );
+}
+
+function seriesFromOfficialName(name: string): string | undefined {
+  const normalized = name.normalize("NFKC");
+  if (/PHOENIX\s*BATTLE|フェニックス[\s・･]*バトル/i.test(normalized)) {
+    return "Phoenix Battle";
+  }
+  if (/DYNAMIC\s*GLOVE|ダイナミック[\s・･]*グローブ/i.test(normalized)) {
+    return "Dynamic Glove";
+  }
+  if (/TREASURE/i.test(normalized)) return "Treasure-Boxing";
+  if (/3150|KWORLD3|LUSH|SAIKOU/i.test(normalized)) return "3150 FIGHT";
+  if (/LIFE\s*TIME/i.test(normalized)) return "Lifetime Boxing Fights";
+  if (/PRIME\s*VIDEO/i.test(normalized)) return "Prime Video Boxing";
+  if (/U-?NEXT/i.test(normalized)) return "U-NEXT Boxing";
+  if (/LEMINO/i.test(normalized)) return "Lemino Boxing";
+  return undefined;
+}
+
 function unresolvedEventNameWarning(events: BoxingEvent[]): string | undefined {
   const unresolved = events.filter(
     (event) =>
@@ -538,9 +568,15 @@ function mergeKnownEvents(
       sourceName: sourceEvent.sourceName ?? "公式シリーズ情報",
       bouts: sourceEvent.bouts ?? [],
     };
-    const existingIndex = merged.findIndex((candidate) =>
+    const matchedIndex = merged.findIndex((candidate) =>
       sameMajorEvent(candidate, curated),
     );
+    const genericIndex = matchedIndex === -1
+      ? merged.findIndex((candidate) =>
+        isGenericJbcEventForKnownEvent(candidate, curated),
+      )
+      : -1;
+    const existingIndex = matchedIndex !== -1 ? matchedIndex : genericIndex;
 
     if (existingIndex === -1) {
       merged.push(curated);
@@ -624,9 +660,18 @@ function mergeBoxmobCards(
       cardSet.name.trim() &&
       !isGenericEventName(cardSetEvent),
     );
+    const officialSeries = hasOfficialName
+      ? seriesFromOfficialName(cardSet.name)
+      : undefined;
     return {
       ...event,
-      ...(hasOfficialName ? { name: cardSet.name, nameStatus: "official" as const } : {}),
+      ...(hasOfficialName
+        ? {
+            name: cardSet.name,
+            nameStatus: "official" as const,
+            ...(officialSeries ? { series: officialSeries } : {}),
+          }
+        : {}),
       sourceName: "ボクシングモバイル / JBC結果",
       detailsUrl: cardSet.detailsUrl,
       sourceUpdatedAt: event.sourceUpdatedAt,
@@ -822,6 +867,8 @@ function resultForPair(
 
 function seriesHint(value: string): string {
   const text = value.normalize("NFKC").toLowerCase();
+  // Leminoは配信プラットフォーム名でも使われるため、固有興行名を先に判定する。
+  if (text.includes("phoenix") || text.includes("フェニックス")) return "phoenix";
   if (text.includes("lemino")) return "lemino";
   if (text.includes("prime")) return "prime";
   if (text.includes("dynamic glove")) return "dynamic-glove";
@@ -833,7 +880,6 @@ function seriesHint(value: string): string {
     text.includes("lush") ||
     text.includes("saikou")
   ) return "3150";
-  if (text.includes("phoenix") || text.includes("フェニックス")) return "phoenix";
   if (text.includes("lifetime")) return "lifetime";
   return "";
 }

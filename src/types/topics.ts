@@ -35,6 +35,10 @@ export interface TopicBoard {
   dateLabel: string;
   location: string;
   region: string;
+  /** Domain-specific area bucket used by the redevelopment tabs. */
+  area?: string;
+  /** Marks nationally selected redevelopment projects for the spotlight tab. */
+  spotlight?: boolean;
   summary: string;
   image: string;
   metrics: TopicMetric[];

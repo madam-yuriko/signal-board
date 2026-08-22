@@ -59,7 +59,7 @@ export default function RootLayout({
           }}
         />
         <Header />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-5 sm:px-4 sm:py-6 lg:px-6">
+        <main className="mx-auto w-full max-w-[2200px] flex-1 px-3 py-5 sm:px-4 sm:py-6 lg:px-6 2xl:px-8">
           {children}
         </main>
         <footer className="border-t border-white/5 py-4 text-center text-[11px] text-gray-600">

@@ -16,7 +16,7 @@ export default function BoutRow({ bout }: { bout: Bout }) {
   });
 
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-white/5 bg-black/20 p-2.5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-1.5 rounded-md border border-white/5 bg-black/20 p-2.5">
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-1">
           {bout.isMainEvent && (
@@ -32,7 +32,7 @@ export default function BoutRow({ bout }: { bout: Bout }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-          <span className={jpFighterWon ? "font-bold text-white" : "text-gray-300"}>
+          <span className={`whitespace-nowrap ${jpFighterWon ? "font-bold text-white" : "text-gray-300"}`}>
             {bout.jpFighter}
             {jpAnnotation && (
               <span className="ml-1 text-[11px] text-gray-500">
@@ -41,13 +41,13 @@ export default function BoutRow({ bout }: { bout: Bout }) {
             )}
           </span>
           {jpFighterWon && (
-            <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
+            <span className="whitespace-nowrap rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
               勝
             </span>
           )}
-          <span className="text-gray-500">vs</span>
+          <span className="whitespace-nowrap text-gray-500">vs</span>
           <span
-            className={opponentWon ? "font-bold text-white" : "text-gray-300"}
+            className={`whitespace-nowrap ${opponentWon ? "font-bold text-white" : "text-gray-300"}`}
           >
             {bout.opponent}
             {opponentAnnotation && (
@@ -57,23 +57,28 @@ export default function BoutRow({ bout }: { bout: Bout }) {
             )}
           </span>
           {opponentWon && (
-            <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
+            <span className="whitespace-nowrap rounded border border-emerald-400/30 bg-emerald-400/10 px-1 py-0.5 text-[9px] font-bold text-emerald-300">
               勝
             </span>
           )}
           {bout.result === "draw" && (
-            <span className="rounded border border-slate-400/30 bg-slate-400/10 px-1 py-0.5 text-[9px] font-bold text-slate-300">
+            <span className="whitespace-nowrap rounded border border-slate-400/30 bg-slate-400/10 px-1 py-0.5 text-[9px] font-bold text-slate-300">
               引分
             </span>
           )}
           {bout.result === "no-contest" && (
-            <span className="rounded border border-slate-400/30 bg-slate-400/10 px-1 py-0.5 text-[9px] font-bold text-slate-300">
+            <span className="whitespace-nowrap rounded border border-slate-400/30 bg-slate-400/10 px-1 py-0.5 text-[9px] font-bold text-slate-300">
               無効
             </span>
           )}
           {bout.result === "cancelled" && (
-            <span className="rounded border border-rose-400/30 bg-rose-400/10 px-1 py-0.5 text-[9px] font-bold text-rose-300">
+            <span className="whitespace-nowrap rounded border border-rose-400/30 bg-rose-400/10 px-1 py-0.5 text-[9px] font-bold text-rose-300">
               中止
+            </span>
+          )}
+          {bout.method && (
+            <span className="ml-auto whitespace-nowrap text-[11px] text-gray-400">
+              {bout.method}
             </span>
           )}
         </div>
@@ -83,11 +88,6 @@ export default function BoutRow({ bout }: { bout: Bout }) {
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5 sm:flex-col sm:items-end">
-        {bout.method && (
-          <span className="text-[11px] text-gray-400">{bout.method}</span>
-        )}
-      </div>
     </div>
   );
 }

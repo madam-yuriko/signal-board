@@ -635,6 +635,11 @@ function TopicCard({
   );
 }
 
+export interface TopicAreaTab {
+  id: string;
+  label: string;
+}
+
 interface Props {
   domain: TopicDomain;
   title: string;
@@ -643,6 +648,7 @@ interface Props {
   feedMode: "live" | "fallback" | "curated";
   sourceName: string;
   updatedAt?: string;
+  areaTabs?: TopicAreaTab[];
 }
 
 function formatUpdatedAt(value?: string): string | undefined {
@@ -668,11 +674,13 @@ export default function TopicDashboard({
   feedMode,
   sourceName,
   updatedAt,
+  areaTabs = [],
 }: Props) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
   const [region, setRegion] = useState("all");
+  const [areaTab, setAreaTab] = useState("all");
   const [movieTypes, setMovieTypes] = useState<MovieType[]>([]);
   const [movieGenres, setMovieGenres] = useState<string[]>([]);
   const [indieGenre, setIndieGenre] = useState<string>("all");
@@ -880,6 +888,18 @@ export default function TopicDashboard({
     () => [...new Set(items.map((item) => item.region))],
     [items],
   );
+  const areaTabCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      for (const tab of areaTabs) {
+        const matches = tab.id === "spotlight"
+          ? item.spotlight === true
+          : item.area === tab.id;
+        if (matches) counts.set(tab.id, (counts.get(tab.id) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [areaTabs, items]);
   const checkedItemCount = useMemo(
     () => domain === "indie-game"
       ? checkedCardKeys.filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`)).length
@@ -908,6 +928,9 @@ export default function TopicDashboard({
     if (domain === "indie-game" && checkedOnly) return checkedIndieItems;
     const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
+      if (domain === "redevelopment" && areaTab !== "all") {
+        if (areaTab === "spotlight" ? item.spotlight !== true : item.area !== areaTab) return false;
+      }
       if (status !== "all" && item.status !== status) return false;
       if (domain === "movie") {
         if (movieTypes.length > 0 && !movieTypes.includes(movieTypeFor(item))) return false;
@@ -940,7 +963,7 @@ export default function TopicDashboard({
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [category, checkedIndieItems, checkedOnly, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
+  }, [areaTab, category, checkedIndieItems, checkedOnly, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
 
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
@@ -980,6 +1003,7 @@ export default function TopicDashboard({
     indieGenre !== "all" ||
     indiePlatform !== "all" ||
     (domain === "indie-game" && checkedOnly) ||
+    (domain === "redevelopment" && areaTab !== "all") ||
     region !== "all";
 
   function resetFilters() {
@@ -987,6 +1011,7 @@ export default function TopicDashboard({
     setStatus("all");
     setCategory("all");
     setRegion("all");
+    setAreaTab("all");
     setMovieTypes([]);
     setMovieGenres([]);
     setIndieGenre("all");
@@ -1127,6 +1152,42 @@ export default function TopicDashboard({
         </div>
       )}
 
+      {domain === "redevelopment" && areaTabs.length > 0 && (
+        <section className="glass-card rounded-lg p-3">
+          <div className="mb-1.5 text-[10px] font-semibold text-gray-500">
+            エリア／注目プロジェクト
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            <button
+              type="button"
+              onClick={() => setAreaTab("all")}
+              className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] transition ${
+                areaTab === "all"
+                  ? "border-cyan-300/50 bg-cyan-400/15 text-cyan-100"
+                  : "border-white/10 text-gray-400 hover:border-cyan-300/30 hover:text-cyan-100"
+              }`}
+            >
+              すべて <span className="ml-1 opacity-60">{items.length}</span>
+            </button>
+            {areaTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setAreaTab(tab.id)}
+                disabled={(areaTabCounts.get(tab.id) ?? 0) === 0}
+                className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] transition ${
+                  areaTab === tab.id
+                    ? "border-cyan-300/50 bg-cyan-400/15 text-cyan-100"
+                    : "border-white/10 text-gray-400 hover:border-cyan-300/30 hover:text-cyan-100"
+                } disabled:cursor-not-allowed disabled:opacity-30`}
+              >
+                {tab.label} <span className="ml-1 opacity-60">{areaTabCounts.get(tab.id) ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <StatCards stats={statusStats(domain, filtered)} />
 
       <section className="glass-card space-y-3 rounded-lg p-3">
@@ -1141,19 +1202,21 @@ export default function TopicDashboard({
               className={`w-full rounded-md border border-white/10 bg-black/30 py-2 pl-8 pr-3 text-xs text-white outline-none placeholder:text-gray-600 ${domainStyle.filter}`}
             />
           </div>
-          <select
-            value={region}
-            onChange={(event) => setRegion(event.target.value)}
-            aria-label="地域で絞り込み"
-            className={`rounded-md border border-white/10 bg-[#101018] px-2.5 py-2 text-xs text-gray-300 outline-none ${domainStyle.filter}`}
-          >
-            <option value="all">すべての地域</option>
-            {regions.map((itemRegion) => (
-              <option key={itemRegion} value={itemRegion}>
-                {itemRegion}
-              </option>
-            ))}
-          </select>
+          {domain !== "redevelopment" && (
+            <select
+              value={region}
+              onChange={(event) => setRegion(event.target.value)}
+              aria-label="地域で絞り込み"
+              className={`rounded-md border border-white/10 bg-[#101018] px-2.5 py-2 text-xs text-gray-300 outline-none ${domainStyle.filter}`}
+            >
+              <option value="all">すべての地域</option>
+              {regions.map((itemRegion) => (
+                <option key={itemRegion} value={itemRegion}>
+                  {itemRegion}
+                </option>
+              ))}
+            </select>
+          )}
           {domain === "indie-game" && (
             <button
               type="button"
@@ -1515,9 +1578,9 @@ export default function TopicDashboard({
         <TopicDataTable domain={domain} rows={tableRows} view={tableView} />
       ) : (
         <>
-          <div className="gap-3 [column-fill:_balance] columns-1 sm:columns-2 xl:columns-3">
+          <div className="responsive-card-grid">
             {visibleItems.map((item) => (
-              <div key={item.id} className="mb-3 break-inside-avoid">
+              <div key={item.id} className="min-w-0">
                 <TopicCard
                   item={item}
                   favoriteTheaters={favoriteTheaters}

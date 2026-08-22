@@ -43,7 +43,7 @@ export default function Header() {
 
   return (
     <header className="glass-panel sticky top-0 z-50 border-b border-white/10">
-      <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 lg:px-6">
+      <div className="mx-auto w-full max-w-[2200px] px-3 sm:px-4 lg:px-6 2xl:px-8">
         <div className="flex h-11 items-center justify-between gap-3">
           <Link
             href="/"

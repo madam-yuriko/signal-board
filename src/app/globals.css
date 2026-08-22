@@ -65,6 +65,15 @@ body {
   box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
 }
 
+/* Keep cards a consistent width and add columns as the available space grows. */
+.responsive-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 360px));
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.75rem;
+}
+
 /* Pulse animation for "live / upcoming" markers */
 @keyframes pulse-slow {
   0%, 100% {
