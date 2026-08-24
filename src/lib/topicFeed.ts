@@ -26,6 +26,7 @@ const FETCH_TIMEOUT_MS = 12_000;
 const EIGA_ORIGIN = "https://eiga.com";
 const FILMARKS_ORIGIN = "https://filmarks.com";
 const MOVIE_UPCOMING_DAYS = 90;
+const MOVIE_FEED_CACHE_VERSION = "movie-classification-v3";
 const INDIE_GAME_MAX_ITEMS = 120;
 const INDIE_GAME_RELEASE_WINDOW_YEARS = 1;
 const TOKYO_REDEVELOPMENT_INDEX =
@@ -74,6 +75,7 @@ export interface TopicFeed {
   mode: "live" | "fallback" | "curated";
   sourceName: string;
   updatedAt?: string;
+  cacheVersion?: string;
 }
 
 const FALLBACKS: Record<TopicDomain, TopicBoard[]> = {
@@ -459,10 +461,24 @@ function classifyMovie(
   supplementalGenres: string[] = [],
 ): Pick<FeedEntry, "movieType" | "genres"> {
   const detailText = plainText(html);
-  const country = detailText.match(/製作[／/]\s*[^／/\n]{1,20}[／/]\s*([^\s／/、,]+)/i)?.[1] ?? "";
+  const productionInfo = detailText.match(
+    /製作[／/]\s*([\s\S]*?)(?=\s+配給[：:]|\s+劇場公開日|$)/i,
+  )?.[1] ?? "";
+  const productionFields = productionInfo
+    .split(/[／/]/)
+    .map((field) => field.trim())
+    .filter(Boolean);
+  const country = productionFields[productionFields.length - 1] ?? "";
   const story = detailText.match(/解説・あらすじ([\s\S]*?)(?:スタッフ・キャスト|全てのスタッフ)/i)?.[1] ?? detailText.slice(0, 4_000);
   const searchable = `${title} ${description} ${country} ${story}`;
-  const anime = /アニメーション|アニメ作品|劇場版アニメ|anime|animation|3d\s*cg|cg作品/i.test(searchable);
+  const animeEvidence = [
+    title,
+    description,
+    country,
+    story.split(/[。！？!?]/).slice(0, 2).join(" "),
+    ...supplementalGenres,
+  ].join(" ");
+  const anime = /テレビアニメ|アニメーション|アニメ作品|アニメ映画|劇場版アニメ|anime|animation|3d\s*cg|cg作品/i.test(animeEvidence);
   const movieType: MovieType = anime
     ? "アニメ/CG"
     : country
@@ -1183,7 +1199,7 @@ function getCachedMovieDetails(
 ): Promise<FeedEntry | undefined> {
   return unstable_cache(
     () => fetchMovieDetails(url, status),
-    ["signal-board-movie-detail-v10-cast-names", status, url],
+    ["signal-board-movie-detail-v13-production-country-anime-evidence", status, url],
     {
       revalidate: REVALIDATE_SECONDS,
       tags: ["movie-feed-details"],
@@ -1258,7 +1274,13 @@ async function fetchMovies(): Promise<TopicFeed> {
     movieType: entry.movieType,
     genres: entry.genres,
   }));
-  return { items, mode: "live", sourceName: "映画.com 上映中・公開予定", updatedAt: new Date().toISOString() };
+  return {
+    items,
+    mode: "live",
+    sourceName: "映画.com 上映中・公開予定",
+    updatedAt: new Date().toISOString(),
+    cacheVersion: MOVIE_FEED_CACHE_VERSION,
+  };
 }
 
 async function fetchDisasters(): Promise<TopicFeed> {
@@ -1310,7 +1332,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-    ["signal-board-topic-feed-v43-redevelopment-area-tabs"],
+    ["signal-board-topic-feed-v47-movie-production-country-anime-evidence-cache"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 
@@ -1347,6 +1369,9 @@ async function readLastGoodFeed(domain: TopicDomain): Promise<TopicFeed | undefi
     if (domain === "redevelopment" && feed.sourceName !== "東京都・札幌市 公式再開発地区一覧 / 全国注目プロジェクト選定") {
       return undefined;
     }
+    if (domain === "movie" && feed.cacheVersion !== MOVIE_FEED_CACHE_VERSION) {
+      return undefined;
+    }
     if (domain === "indie-game" && feed.items.some((item) => !item.releaseDate || !Array.isArray(item.genres))) return undefined;
     return feed;
   } catch {
@@ -1359,7 +1384,7 @@ async function writeLastGoodFeed(domain: TopicDomain, feed: TopicFeed): Promise<
   try {
     await fs.mkdir(LAST_GOOD_FEED_DIR, { recursive: true });
     const target = path.join(LAST_GOOD_FEED_DIR, `${domain}.json`);
-    const temporary = `${target}.tmp`;
+    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
     await fs.writeFile(temporary, JSON.stringify(feed), "utf8");
     await fs.rename(temporary, target);
   } catch {

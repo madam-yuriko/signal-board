@@ -345,10 +345,11 @@ function MovieTheaterAvailability({
   sourceUrl?: string;
   favoriteTheaters: string[];
 }) {
+  type TheaterSchedule = { name: string; url?: string };
   const markerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [available, setAvailable] = useState<string[]>([]);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [available, setAvailable] = useState<TheaterSchedule[]>([]);
+  const [suggestions, setSuggestions] = useState<TheaterSchedule[]>([]);
   const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
   const favoriteTheaterKey = favoriteTheaters.join("\u0000");
 
@@ -375,12 +376,21 @@ function MovieTheaterAvailability({
         });
         if (!response.ok) throw new Error("theater availability request failed");
         const result = (await response.json()) as {
-          theaters?: Array<{ name: string; available: boolean }>;
-          suggestions?: Array<{ name: string; available: boolean }>;
+          theaters?: Array<{ name: string; available: boolean; url?: string }>;
+          suggestions?: Array<{ name: string; available: boolean; url?: string }>;
         };
         if (cancelled) return;
-        setAvailable((result.theaters ?? []).filter((theater) => theater.available).map((theater) => theater.name));
-        setSuggestions((result.suggestions ?? []).filter((theater) => theater.available).map((theater) => theater.name).slice(0, 3));
+        setAvailable(
+          (result.theaters ?? [])
+            .filter((theater) => theater.available)
+            .map(({ name, url }) => ({ name, url })),
+        );
+        setSuggestions(
+          (result.suggestions ?? [])
+            .filter((theater) => theater.available)
+            .map(({ name, url }) => ({ name, url }))
+            .slice(0, 3),
+        );
         setState("ready");
       } catch (error) {
         if (controller.signal.aborted ||
@@ -410,12 +420,33 @@ function MovieTheaterAvailability({
   }, [favoriteTheaterKey, sourceUrl]);
 
   if (!sourceUrl || favoriteTheaters.length === 0) return null;
+
+  function renderTheater(theater: TheaterSchedule, tone: string) {
+    const className = `block ${tone} hover:underline hover:underline-offset-2`;
+    return theater.url ? (
+      <a
+        key={theater.name}
+        href={theater.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`${theater.name}の上映スケジュールを開く`}
+        className={className}
+      >
+        {theater.name}
+      </a>
+    ) : (
+      <span key={theater.name} className={className}>
+        {theater.name}
+      </span>
+    );
+  }
+
   return (
     <div ref={markerRef} className="rounded-md border border-white/8 bg-white/[0.03] px-2 py-1.5 text-[10px] text-gray-400">
       {state === "loading" || state === "idle" ? "お気に入り劇場の上映状況を確認中…" : null}
       {state === "ready" && available.length > 0 ? (
         <div className="space-y-0.5 text-emerald-300">
-          {available.map((theater) => <div key={theater}>{theater}</div>)}
+          {available.map((theater) => renderTheater(theater, "text-emerald-300"))}
         </div>
       ) : null}
       {state === "ready" && available.length === 0 && suggestions.length > 0 ? (
@@ -431,7 +462,7 @@ function MovieTheaterAvailability({
           </button>
           <div className={`grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out ${suggestionsExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
             <div className="min-h-0 space-y-0.5 pt-1 text-amber-200">
-              {suggestions.map((theater) => <div key={theater}>{theater}</div>)}
+              {suggestions.map((theater) => renderTheater(theater, "text-amber-200"))}
             </div>
           </div>
         </div>
@@ -1022,16 +1053,16 @@ export default function TopicDashboard({
   function toggleMovieType(value: MovieType) {
     setMovieTypes((current) =>
       current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value],
+        ? []
+        : [value],
     );
   }
 
   function toggleMovieGenre(value: string) {
     setMovieGenres((current) =>
       current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value],
+        ? []
+        : [value],
     );
   }
 
@@ -1364,10 +1395,23 @@ export default function TopicDashboard({
                   作品区分
                 </div>
                 <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={movieTypes.length === 0}
+                    onClick={() => setMovieTypes([])}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      movieTypes.length === 0
+                        ? "border-white/25 bg-white/10 text-white"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    すべて
+                  </button>
                   {MOVIE_TYPES.map((itemType) => (
                     <button
                       key={itemType}
                       type="button"
+                      aria-pressed={movieTypes.includes(itemType)}
                       onClick={() => toggleMovieType(itemType)}
                       className={`rounded-md border px-2 py-1 text-[11px] ${
                         movieTypes.includes(itemType)
@@ -1385,10 +1429,23 @@ export default function TopicDashboard({
                   ジャンル
                 </div>
                 <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={movieGenres.length === 0}
+                    onClick={() => setMovieGenres([])}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      movieGenres.length === 0
+                        ? "border-white/25 bg-white/10 text-white"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    すべて
+                  </button>
                   {movieGenresAvailable.map((genre) => (
                     <button
                       key={genre}
                       type="button"
+                      aria-pressed={movieGenres.includes(genre)}
                       onClick={() => toggleMovieGenre(genre)}
                       className={`rounded-md border px-2 py-1 text-[11px] ${
                         movieGenres.includes(genre)

@@ -31,6 +31,12 @@ function normalize(value: string): string {
     .replace(/[\s・·,.、。\-ー]/g, "");
 }
 
+function movieTheaterScheduleUrl(movieId: string, theaterPath: string): string {
+  const [, , prefecture, area, theaterId] = theaterPath.split("/");
+  if (!prefecture || !area || !theaterId) return `${EIGA_ORIGIN}${theaterPath}`;
+  return `${EIGA_ORIGIN}/movie-theater/${movieId}/${prefecture}/${area}/${theaterId}/`;
+}
+
 async function fetchHtml(url: string, signal?: AbortSignal): Promise<string> {
   const requestSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
@@ -204,6 +210,7 @@ export async function GET(request: Request) {
         if (!theater) return { name, available: false };
         return {
           name: theater.name,
+          url: movieTheaterScheduleUrl(movieId, theater.path),
           available: await checkAvailability(movieId, theater, request.signal),
         };
       } catch (error) {
@@ -215,6 +222,7 @@ export async function GET(request: Request) {
     const suggestions = resolved.length === 0
       ? (await findTokyoSuggestions(movieId, request.signal)).map((theater) => ({
           name: theater.name,
+          url: movieTheaterScheduleUrl(movieId, theater.path),
           available: true,
         }))
       : [];
