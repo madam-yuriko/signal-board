@@ -31,6 +31,7 @@ import TopicDataTable, {
   type TopicTableView,
 } from "@/components/TopicDataTable";
 import EntityPicker from "@/components/EntityPicker";
+import CheckedOnlyFilter from "@/components/CheckedOnlyFilter";
 import {
   INDIE_GAME_GENRES,
   indieGameGenresFor,
@@ -39,17 +40,7 @@ import {
   INDIE_GAME_PLATFORMS,
   indieGamePlatformsFor,
 } from "@/lib/indieGamePlatforms";
-import {
-  type CheckedCardSnapshots,
-  checkedCardKey,
-  hasCheckedCardsSqliteMigration,
-  isTopicBoardSnapshot,
-  markCheckedCardsSqliteMigration,
-  readCheckedCardKeys,
-  readCheckedCardSnapshots,
-  writeCheckedCardKeys,
-  writeCheckedCardSnapshots,
-} from "@/lib/checkedCards";
+import { useCheckedCards } from "@/hooks/useCheckedCards";
 
 const TONE_STYLES: Record<TopicStatusTone, string> = {
   neutral: "border-white/15 bg-white/5 text-gray-300",
@@ -62,7 +53,6 @@ const TONE_STYLES: Record<TopicStatusTone, string> = {
 const MOVIE_TYPES: MovieType[] = ["邦画", "洋画", "アニメ/CG"];
 const MOVIE_INITIAL_VISIBLE_CARDS = 30;
 const NAVIGATION_START_EVENT = "signal-board:navigation-start";
-const INDIE_CHECK_SCOPE = "indie-game";
 const MOVIE_THEATER_PREFECTURES = [
   ["01", "北海道"], ["02", "青森"], ["03", "岩手"], ["04", "宮城"], ["05", "秋田"],
   ["06", "山形"], ["07", "福島"], ["08", "茨城"], ["09", "栃木"], ["10", "群馬"],
@@ -125,6 +115,10 @@ function movieGenresFor(item: TopicBoard): string[] {
     if (b === "その他") return -1;
     return (order.get(a) ?? MOVIE_GENRE_ORDER.length - 1) - (order.get(b) ?? MOVIE_GENRE_ORDER.length - 1);
   });
+}
+
+function movieIdFor(item: TopicBoard): string | undefined {
+  return item.sourceUrl?.match(/https?:\/\/eiga\.com\/movie\/(\d+)\/?/i)?.[1];
 }
 
 function theaterKey(value: string): string {
@@ -486,6 +480,11 @@ function TopicCard({
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const domain = DOMAIN_STYLES[item.domain];
+  const checkedLabel = item.domain === "indie-game"
+    ? "買いたい"
+    : item.domain === "redevelopment"
+      ? "行きたい"
+      : "観たい";
 
   return (
     <article className="glass-card group relative overflow-hidden rounded-lg">
@@ -546,7 +545,9 @@ function TopicCard({
               </span>
             )}
           </div>
-          {item.domain === "indie-game" && (
+          {(item.domain === "indie-game" ||
+            item.domain === "movie" ||
+            item.domain === "redevelopment") && (
             <button
               type="button"
               aria-pressed={checked}
@@ -558,7 +559,7 @@ function TopicCard({
               }`}
             >
               {checked && <Check className="h-3.5 w-3.5" />}
-              {checked ? "買いたい済み" : "買いたい"}
+              {checked ? `${checkedLabel}済み` : checkedLabel}
             </button>
           )}
         </div>
@@ -693,10 +694,6 @@ function formatUpdatedAt(value?: string): string | undefined {
   }).format(new Date(value));
 }
 
-function indieGameCheckKey(item: TopicBoard): string {
-  return checkedCardKey(INDIE_CHECK_SCOPE, item.sourceUrl ?? item.id);
-}
-
 export default function TopicDashboard({
   domain,
   title,
@@ -717,6 +714,9 @@ export default function TopicDashboard({
   const [indieGenre, setIndieGenre] = useState<string>("all");
   const [indiePlatform, setIndiePlatform] = useState<string>("all");
   const [favoriteTheaters, setFavoriteTheaters] = useState<string[]>([]);
+  const [favoriteTheaterFilter, setFavoriteTheaterFilter] = useState("all");
+  const [favoriteTheaterMovieIds, setFavoriteTheaterMovieIds] = useState<string[]>([]);
+  const [favoriteTheaterFilterState, setFavoriteTheaterFilterState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [favoriteTheatersSaved, setFavoriteTheatersSaved] = useState(false);
   const [theaterPrefecture, setTheaterPrefecture] = useState("13");
   const [theaterOptions, setTheaterOptions] = useState<TheaterOption[]>([]);
@@ -726,118 +726,27 @@ export default function TopicDashboard({
   const [viewMode, setViewMode] = useState<DataViewMode>("cards");
   const [tableView, setTableView] = useState<TopicTableView>("standard");
   const [selectedActor, setSelectedActor] = useState("");
-  const [checkedCardKeys, setCheckedCardKeys] = useState<string[]>([]);
-  const [checkedCardSnapshots, setCheckedCardSnapshots] = useState<CheckedCardSnapshots>({});
-  const [checkedCardsLoaded, setCheckedCardsLoaded] = useState(false);
   const [checkedOnly, setCheckedOnly] = useState(false);
 
   const domainStyle = DOMAIN_STYLES[domain];
   const DomainIcon = domainStyle.icon;
   const updatedLabel = formatUpdatedAt(updatedAt);
-
-  useEffect(() => {
-    if (domain !== "indie-game") {
-      return;
-    }
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const loadingTimer = window.setTimeout(() => {
-      if (!cancelled) setCheckedCardsLoaded(false);
-    }, 0);
-
-    const applyLocalFallback = () => {
-      const keys = readCheckedCardKeys();
-      const snapshots = readCheckedCardSnapshots();
-      const currentItemsByKey = new Map(items.map((item) => [indieGameCheckKey(item), item]));
-      for (const key of keys) {
-        if (key.startsWith(`${INDIE_CHECK_SCOPE}:`) && !snapshots[key]) {
-          const currentItem = currentItemsByKey.get(key);
-          if (currentItem) snapshots[key] = currentItem;
-        }
-      }
-      if (cancelled) return;
-      setCheckedCardKeys(keys);
-      setCheckedCardSnapshots(snapshots);
-      setCheckedCardsLoaded(true);
-    };
-
-    const load = async () => {
-      const legacyKeys = readCheckedCardKeys();
-      const legacySnapshots = readCheckedCardSnapshots();
-      const currentItemsByKey = new Map(items.map((item) => [indieGameCheckKey(item), item]));
-
-      try {
-        const response = await fetch(`/api/checked-cards?scope=${INDIE_CHECK_SCOPE}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("checked cards request failed");
-        const result = (await response.json()) as {
-          cards?: Array<{ key?: unknown; item?: unknown }>;
-        };
-        const stored = new Map<string, TopicBoard>();
-        for (const card of result.cards ?? []) {
-          if (typeof card.key === "string" && isTopicBoardSnapshot(card.item) && card.item.domain === "indie-game") {
-            stored.set(card.key, card.item);
-          }
-        }
-
-        if (!hasCheckedCardsSqliteMigration()) {
-          const legacyCards = legacyKeys
-            .filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`))
-            .flatMap((key) => {
-              const item = legacySnapshots[key] ?? currentItemsByKey.get(key);
-              return item?.domain === "indie-game" ? [{ key, item }] : [];
-            });
-
-          if (legacyCards.length > 0) {
-            const migrationResponse = await fetch("/api/checked-cards", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ scope: INDIE_CHECK_SCOPE, cards: legacyCards }),
-              cache: "no-store",
-              signal: controller.signal,
-            });
-            if (!migrationResponse.ok) throw new Error("checked cards migration failed");
-            const migrationResult = (await migrationResponse.json()) as {
-              cards?: Array<{ key?: unknown; item?: unknown }>;
-            };
-            for (const card of migrationResult.cards ?? []) {
-              if (typeof card.key === "string" && isTopicBoardSnapshot(card.item) && card.item.domain === "indie-game") {
-                stored.set(card.key, card.item);
-              }
-            }
-          }
-          markCheckedCardsSqliteMigration();
-        }
-
-        if (cancelled) return;
-        setCheckedCardKeys([...stored.keys()]);
-        setCheckedCardSnapshots(Object.fromEntries(stored));
-        setCheckedCardsLoaded(true);
-      } catch (error) {
-        if (controller.signal.aborted ||
-          (error instanceof DOMException && error.name === "AbortError")) return;
-        applyLocalFallback();
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearTimeout(loadingTimer);
-    };
-  }, [domain, items]);
-
-  useEffect(() => {
-    if (checkedCardsLoaded) writeCheckedCardKeys(checkedCardKeys);
-  }, [checkedCardKeys, checkedCardsLoaded]);
-
-  useEffect(() => {
-    if (checkedCardsLoaded) writeCheckedCardSnapshots(checkedCardSnapshots);
-  }, [checkedCardSnapshots, checkedCardsLoaded]);
+  const checkedCardScope = domain === "indie-game" ||
+    domain === "movie" ||
+    domain === "redevelopment"
+    ? domain
+    : undefined;
+  const checkedActionLabel = domain === "indie-game"
+    ? "買いたい"
+    : domain === "redevelopment"
+      ? "行きたい"
+      : "観たい";
+  const {
+    checkedItems,
+    checkedCount: checkedItemCount,
+    isChecked,
+    toggle: toggleCheckedCard,
+  } = useCheckedCards(checkedCardScope, checkedCardScope ? items : []);
 
   useEffect(() => {
     if (domain !== "movie") return;
@@ -896,6 +805,46 @@ export default function TopicDashboard({
       window.removeEventListener(NAVIGATION_START_EVENT, abortForNavigation);
     };
   }, [domain, theaterPrefecture]);
+
+  useEffect(() => {
+    if (domain !== "movie" || favoriteTheaterFilter === "all") return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const loadingTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setFavoriteTheaterFilterState("loading");
+        setFavoriteTheaterMovieIds([]);
+      }
+    }, 0);
+    const params = new URLSearchParams({
+      schedule: "1",
+      theater: favoriteTheaterFilter,
+    });
+    fetch(`/api/movie-theaters?${params.toString()}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("theater schedule request failed");
+        return (await response.json()) as { movieIds?: string[] };
+      })
+      .then((result) => {
+        if (cancelled) return;
+        setFavoriteTheaterMovieIds(result.movieIds ?? []);
+        setFavoriteTheaterFilterState("ready");
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")) return;
+        if (!cancelled) setFavoriteTheaterFilterState("error");
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(loadingTimer);
+    };
+  }, [domain, favoriteTheaterFilter]);
+
   const statuses = useMemo(
     () =>
       [...new Map(items.map((item) => [item.status, item.statusLabel])).entries()],
@@ -931,32 +880,13 @@ export default function TopicDashboard({
     }
     return counts;
   }, [areaTabs, items]);
-  const checkedItemCount = useMemo(
-    () => domain === "indie-game"
-      ? checkedCardKeys.filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`)).length
-      : 0,
-    [checkedCardKeys, domain],
+  const favoriteTheaterMovieIdSet = useMemo(
+    () => new Set(favoriteTheaterMovieIds),
+    [favoriteTheaterMovieIds],
   );
-  const checkedIndieItems = useMemo(() => {
-    if (domain !== "indie-game") return [];
-    const checkedKeys = new Set(
-      checkedCardKeys.filter((key) => key.startsWith(`${INDIE_CHECK_SCOPE}:`)),
-    );
-    const byKey = new Map<string, TopicBoard>();
-    for (const item of items) {
-      const key = indieGameCheckKey(item);
-      if (checkedKeys.has(key)) byKey.set(key, item);
-    }
-    for (const [key, item] of Object.entries(checkedCardSnapshots)) {
-      if (checkedKeys.has(key) && !byKey.has(key) && item.domain === "indie-game") {
-        byKey.set(key, item);
-      }
-    }
-    return [...byKey.values()];
-  }, [checkedCardKeys, checkedCardSnapshots, domain, items]);
 
   const filtered = useMemo(() => {
-    if (domain === "indie-game" && checkedOnly) return checkedIndieItems;
+    if (checkedCardScope && checkedOnly) return checkedItems;
     const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
       if (domain === "redevelopment" && areaTab !== "all") {
@@ -967,6 +897,10 @@ export default function TopicDashboard({
         if (movieTypes.length > 0 && !movieTypes.includes(movieTypeFor(item))) return false;
         const genres = movieGenresFor(item);
         if (movieGenres.length > 0 && !movieGenres.some((genre) => genres.includes(genre))) return false;
+        if (favoriteTheaterFilter !== "all" && favoriteTheaterFilterState === "ready") {
+          const movieId = movieIdFor(item);
+          if (!movieId || !favoriteTheaterMovieIdSet.has(movieId)) return false;
+        }
       } else if (domain === "indie-game") {
         const genres = indieGameGenresFor(item);
         if (indieGenre !== "all" && !genres.includes(indieGenre as typeof INDIE_GAME_GENRES[number])) return false;
@@ -994,7 +928,7 @@ export default function TopicDashboard({
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [areaTab, category, checkedIndieItems, checkedOnly, domain, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
+  }, [areaTab, category, checkedCardScope, checkedItems, checkedOnly, domain, favoriteTheaterFilter, favoriteTheaterFilterState, favoriteTheaterMovieIdSet, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
 
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
@@ -1008,9 +942,7 @@ export default function TopicDashboard({
     [filtered],
   );
   const tableRows =
-    domain === "indie-game"
-      ? checkedIndieItems
-      : domain === "movie" && tableView === "actor"
+    domain === "movie" && tableView === "actor"
       ? selectedActor
         ? filtered.filter((item) => movieCast(item).includes(selectedActor))
         : []
@@ -1031,9 +963,10 @@ export default function TopicDashboard({
     (domain !== "movie" && category !== "all") ||
     movieTypes.length > 0 ||
     movieGenres.length > 0 ||
+    favoriteTheaterFilter !== "all" ||
     indieGenre !== "all" ||
     indiePlatform !== "all" ||
-    (domain === "indie-game" && checkedOnly) ||
+    (checkedCardScope !== undefined && checkedOnly) ||
     (domain === "redevelopment" && areaTab !== "all") ||
     region !== "all";
 
@@ -1045,6 +978,9 @@ export default function TopicDashboard({
     setAreaTab("all");
     setMovieTypes([]);
     setMovieGenres([]);
+    setFavoriteTheaterFilter("all");
+    setFavoriteTheaterMovieIds([]);
+    setFavoriteTheaterFilterState("idle");
     setIndieGenre("all");
     setIndiePlatform("all");
     setCheckedOnly(false);
@@ -1066,53 +1002,20 @@ export default function TopicDashboard({
     );
   }
 
+  function selectFavoriteTheaterFilter(value: string) {
+    const next = value === "all" || favoriteTheaterFilter === value ? "all" : value;
+    setFavoriteTheaterFilter(next);
+    setFavoriteTheaterMovieIds([]);
+    setFavoriteTheaterFilterState(next === "all" ? "idle" : "loading");
+    setVisibleMovieCount(MOVIE_INITIAL_VISIBLE_CARDS);
+  }
+
   function toggleIndieGenre(value: string) {
     setIndieGenre(value);
   }
 
   function toggleIndiePlatform(value: string) {
     setIndiePlatform(value);
-  }
-
-  function toggleIndieGameCheck(item: TopicBoard) {
-    if (!checkedCardsLoaded) return;
-    const key = indieGameCheckKey(item);
-    const checked = checkedCardKeys.includes(key);
-    const previousItem = checkedCardSnapshots[key] ?? item;
-    setCheckedCardKeys((current) => checked
-      ? current.filter((value) => value !== key)
-      : [...current, key]);
-    setCheckedCardSnapshots((current) => {
-      const next = { ...current };
-      if (checked) delete next[key];
-      else next[key] = item;
-      return next;
-    });
-
-    const request = checked
-      ? fetch(`/api/checked-cards?scope=${INDIE_CHECK_SCOPE}&key=${encodeURIComponent(key)}`, {
-          method: "DELETE",
-          cache: "no-store",
-        })
-      : fetch("/api/checked-cards", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scope: INDIE_CHECK_SCOPE, key, item }),
-          cache: "no-store",
-        });
-    void request.then((response) => {
-      if (!response.ok) throw new Error("checked card update failed");
-    }).catch(() => {
-      setCheckedCardKeys((current) => checked
-        ? (current.includes(key) ? current : [...current, key])
-        : current.filter((value) => value !== key));
-      setCheckedCardSnapshots((current) => {
-        const next = { ...current };
-        if (checked) next[key] = previousItem;
-        else delete next[key];
-        return next;
-      });
-    });
   }
 
   function addFavoriteTheater() {
@@ -1126,6 +1029,7 @@ export default function TopicDashboard({
 
   function removeFavoriteTheater(name: string) {
     setFavoriteTheaters((current) => current.filter((theater) => theater !== name));
+    if (favoriteTheaterFilter === name) selectFavoriteTheaterFilter("all");
     setFavoriteTheatersSaved(false);
   }
 
@@ -1247,22 +1151,6 @@ export default function TopicDashboard({
                 </option>
               ))}
             </select>
-          )}
-          {domain === "indie-game" && (
-            <button
-              type="button"
-              aria-pressed={checkedOnly}
-              onClick={() => setCheckedOnly((current) => !current)}
-              disabled={checkedItemCount === 0 && !checkedOnly}
-              className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs transition ${
-                checkedOnly
-                  ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
-                  : "border-white/10 text-gray-400 hover:border-emerald-300/40 hover:text-emerald-100"
-              } disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              {checkedOnly && <Check className="h-3.5 w-3.5" />}
-              買いたいだけ（{checkedItemCount}）
-            </button>
           )}
           {hasFilters && (
             <button
@@ -1390,39 +1278,48 @@ export default function TopicDashboard({
                   </p>
                 )}
               </div>
-              <div>
-                <div className="mb-1 text-[10px] font-semibold text-gray-500">
-                  作品区分
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    type="button"
-                    aria-pressed={movieTypes.length === 0}
-                    onClick={() => setMovieTypes([])}
-                    className={`rounded-md border px-2 py-1 text-[11px] ${
-                      movieTypes.length === 0
-                        ? "border-white/25 bg-white/10 text-white"
-                        : "border-white/8 text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    すべて
-                  </button>
-                  {MOVIE_TYPES.map((itemType) => (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                    作品区分
+                  </div>
+                  <div className="flex flex-wrap gap-1">
                     <button
-                      key={itemType}
                       type="button"
-                      aria-pressed={movieTypes.includes(itemType)}
-                      onClick={() => toggleMovieType(itemType)}
+                      aria-pressed={movieTypes.length === 0}
+                      onClick={() => setMovieTypes([])}
                       className={`rounded-md border px-2 py-1 text-[11px] ${
-                        movieTypes.includes(itemType)
-                          ? "border-fuchsia-300/50 bg-fuchsia-400/15 text-fuchsia-100"
+                        movieTypes.length === 0
+                          ? "border-white/25 bg-white/10 text-white"
                           : "border-white/8 text-gray-500 hover:text-gray-300"
                       }`}
                     >
-                      {itemType}
+                      すべて
                     </button>
-                  ))}
+                    {MOVIE_TYPES.map((itemType) => (
+                      <button
+                        key={itemType}
+                        type="button"
+                        aria-pressed={movieTypes.includes(itemType)}
+                        onClick={() => toggleMovieType(itemType)}
+                        className={`rounded-md border px-2 py-1 text-[11px] ${
+                          movieTypes.includes(itemType)
+                            ? "border-fuchsia-300/50 bg-fuchsia-400/15 text-fuchsia-100"
+                            : "border-white/8 text-gray-500 hover:text-gray-300"
+                        }`}
+                      >
+                        {itemType}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                <CheckedOnlyFilter
+                  label={checkedActionLabel}
+                  active={checkedOnly}
+                  count={checkedItemCount}
+                  onChange={setCheckedOnly}
+                  accent="fuchsia"
+                />
               </div>
               <div>
                 <div className="mb-1 text-[10px] font-semibold text-gray-500">
@@ -1458,107 +1355,175 @@ export default function TopicDashboard({
                   ))}
                 </div>
               </div>
+              {favoriteTheaters.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                    お気に入り劇場
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      aria-pressed={favoriteTheaterFilter === "all"}
+                      onClick={() => selectFavoriteTheaterFilter("all")}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        favoriteTheaterFilter === "all"
+                          ? "border-white/25 bg-white/10 text-white"
+                          : "border-white/8 text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      すべて
+                    </button>
+                    {favoriteTheaters.map((theater) => (
+                      <button
+                        key={theater}
+                        type="button"
+                        aria-pressed={favoriteTheaterFilter === theater}
+                        onClick={() => selectFavoriteTheaterFilter(theater)}
+                        className={`rounded-md border px-2 py-1 text-[11px] ${
+                          favoriteTheaterFilter === theater
+                            ? "border-fuchsia-300/50 bg-fuchsia-400/15 text-fuchsia-100"
+                            : "border-white/8 text-gray-500 hover:text-gray-300"
+                        }`}
+                      >
+                        {theater}
+                      </button>
+                    ))}
+                  </div>
+                  {favoriteTheaterFilterState === "loading" && (
+                    <p className="mt-1 text-[10px] text-gray-500" role="status" aria-live="polite">
+                      上映作品を確認中…
+                    </p>
+                  )}
+                  {favoriteTheaterFilterState === "error" && (
+                    <p className="mt-1 text-[10px] text-rose-300" role="status" aria-live="polite">
+                      劇場の上映作品を取得できませんでした
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           ) : domain === "indie-game" ? (
             <>
-              <div className="md:col-span-2">
-              <div className="mb-1 text-[10px] font-semibold text-gray-500">
-                ゲームジャンル
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => toggleIndieGenre("all")}
-                  className={`rounded-md border px-2 py-1 text-[11px] ${
-                    indieGenre === "all"
-                      ? "border-white/25 bg-white/10 text-white"
-                      : "border-white/8 text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  すべて
-                </button>
-                {indieGenresAvailable.map((genre) => (
+              <div>
+                <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                  プラットフォーム
+                </div>
+                <div className="flex flex-wrap gap-1">
                   <button
-                    key={genre}
                     type="button"
-                    onClick={() => toggleIndieGenre(genre)}
+                    aria-pressed={indiePlatform === "all"}
+                    onClick={() => toggleIndiePlatform("all")}
                     className={`rounded-md border px-2 py-1 text-[11px] ${
-                      indieGenre === genre
-                        ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
-                        : "border-white/8 text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    {genre}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="md:col-span-2">
-              <div className="mb-1 text-[10px] font-semibold text-gray-500">
-                プラットフォーム
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => toggleIndiePlatform("all")}
-                  className={`rounded-md border px-2 py-1 text-[11px] ${
-                    indiePlatform === "all"
-                      ? "border-white/25 bg-white/10 text-white"
-                      : "border-white/8 text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  すべて
-                </button>
-                {indiePlatformsAvailable.map((platform) => (
-                  <button
-                    key={platform}
-                    type="button"
-                    onClick={() => toggleIndiePlatform(platform)}
-                    className={`rounded-md border px-2 py-1 text-[11px] ${
-                      indiePlatform === platform
-                        ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
-                        : "border-white/8 text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    {platform}
-                  </button>
-                ))}
-              </div>
-              </div>
-            </>
-          ) : (
-            <div>
-              <div className="mb-1 text-[10px] font-semibold text-gray-500">
-                種類
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => setCategory("all")}
-                  className={`rounded-md border px-2 py-1 text-[11px] ${
-                    category === "all"
-                      ? "border-white/25 bg-white/10 text-white"
-                      : "border-white/8 text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  すべて
-                </button>
-                {categories.map((itemCategory) => (
-                  <button
-                    key={itemCategory}
-                    type="button"
-                    onClick={() => setCategory(itemCategory)}
-                    className={`rounded-md border px-2 py-1 text-[11px] ${
-                      category === itemCategory
+                      indiePlatform === "all"
                         ? "border-white/25 bg-white/10 text-white"
                         : "border-white/8 text-gray-500 hover:text-gray-300"
                     }`}
                   >
-                    {itemCategory}
+                    すべて
                   </button>
-                ))}
+                  {indiePlatformsAvailable.map((platform) => (
+                    <button
+                      key={platform}
+                      type="button"
+                      aria-pressed={indiePlatform === platform}
+                      onClick={() => toggleIndiePlatform(platform)}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        indiePlatform === platform
+                          ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+                          : "border-white/8 text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      {platform}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+              <CheckedOnlyFilter
+                label={checkedActionLabel}
+                active={checkedOnly}
+                count={checkedItemCount}
+                onChange={setCheckedOnly}
+                accent="emerald"
+              />
+              <div className="md:col-span-2">
+                <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                  ゲームジャンル
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={indieGenre === "all"}
+                    onClick={() => toggleIndieGenre("all")}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      indieGenre === "all"
+                        ? "border-white/25 bg-white/10 text-white"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    すべて
+                  </button>
+                  {indieGenresAvailable.map((genre) => (
+                    <button
+                      key={genre}
+                      type="button"
+                      aria-pressed={indieGenre === genre}
+                      onClick={() => toggleIndieGenre(genre)}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        indieGenre === genre
+                          ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+                          : "border-white/8 text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      {genre}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {domain === "redevelopment" && (
+                <CheckedOnlyFilter
+                  label={checkedActionLabel}
+                  active={checkedOnly}
+                  count={checkedItemCount}
+                  onChange={setCheckedOnly}
+                  accent="amber"
+                />
+              )}
+              <div className={domain === "redevelopment" ? "md:col-span-2" : undefined}>
+                <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                  種類
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCategory("all")}
+                    className={`rounded-md border px-2 py-1 text-[11px] ${
+                      category === "all"
+                        ? "border-white/25 bg-white/10 text-white"
+                        : "border-white/8 text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    すべて
+                  </button>
+                  {categories.map((itemCategory) => (
+                    <button
+                      key={itemCategory}
+                      type="button"
+                      onClick={() => setCategory(itemCategory)}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        category === itemCategory
+                          ? "border-white/25 bg-white/10 text-white"
+                          : "border-white/8 text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      {itemCategory}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </section>
@@ -1580,7 +1545,13 @@ export default function TopicDashboard({
                 className="h-7 rounded-md border border-white/10 bg-[#101018] px-2 text-[11px] text-gray-300 outline-none focus:border-white/25"
               >
                 <option value="standard">
-                  {domain === "indie-game" ? "買いたい履歴" : standardTableLabels[domain]}
+                  {domain === "indie-game" && checkedOnly
+                    ? "買いたい履歴"
+                    : domain === "movie" && checkedOnly
+                      ? "観たい履歴"
+                      : domain === "redevelopment" && checkedOnly
+                        ? "行きたい履歴"
+                      : standardTableLabels[domain]}
                 </option>
                 {domain === "movie" && (
                   <>
@@ -1619,8 +1590,12 @@ export default function TopicDashboard({
             <Building2 className="h-6 w-6 text-gray-600" />
           )}
           <p className="text-sm">
-            {domain === "indie-game" && viewMode === "table"
+            {domain === "indie-game" && checkedOnly
               ? "買いたい履歴はありません。"
+              : domain === "movie" && checkedOnly
+                ? "観たい履歴はありません。"
+                : domain === "redevelopment" && checkedOnly
+                  ? "行きたい履歴はありません。"
               : "条件に一致するボードがありません。"}
           </p>
           <button
@@ -1641,8 +1616,8 @@ export default function TopicDashboard({
                 <TopicCard
                   item={item}
                   favoriteTheaters={favoriteTheaters}
-                  checked={checkedCardKeys.includes(indieGameCheckKey(item))}
-                  onToggleCheck={() => toggleIndieGameCheck(item)}
+                  checked={isChecked(item)}
+                  onToggleCheck={() => toggleCheckedCard(item)}
                 />
               </div>
             ))}

@@ -1,14 +1,15 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { TopicBoard } from "@/types/topics";
-
-export const CHECKED_CARD_SCOPES = ["indie-game"] as const;
-export type CheckedCardScope = typeof CHECKED_CARD_SCOPES[number];
+import {
+  isCheckedCardItemForScope,
+  type CheckedCardItem,
+  type CheckedCardScope,
+} from "@/lib/checkedCards";
 
 export interface StoredCheckedCard {
   key: string;
-  item: TopicBoard;
+  item: CheckedCardItem;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,36 +35,10 @@ function openDatabase(): DatabaseSync {
   return database;
 }
 
-export function isCheckedCardScope(value: unknown): value is CheckedCardScope {
-  return typeof value === "string" &&
-    (CHECKED_CARD_SCOPES as readonly string[]).includes(value);
-}
-
-export function isCheckedCardKey(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 2_000;
-}
-
-export function isTopicBoardSnapshot(value: unknown): value is TopicBoard {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<TopicBoard>;
-  return typeof item.id === "string" &&
-    typeof item.domain === "string" &&
-    typeof item.title === "string" &&
-    typeof item.category === "string" &&
-    typeof item.status === "string" &&
-    typeof item.statusLabel === "string" &&
-    typeof item.statusTone === "string" &&
-    typeof item.dateLabel === "string" &&
-    typeof item.location === "string" &&
-    typeof item.region === "string" &&
-    typeof item.summary === "string" &&
-    typeof item.image === "string" &&
-    Array.isArray(item.metrics) &&
-    Array.isArray(item.updates) &&
-    Array.isArray(item.tags);
-}
-
-function decodeRow(row: Record<string, unknown>): StoredCheckedCard | undefined {
+function decodeRow(
+  row: Record<string, unknown>,
+  scope: CheckedCardScope,
+): StoredCheckedCard | undefined {
   if (typeof row.card_key !== "string" ||
     typeof row.item_json !== "string" ||
     typeof row.created_at !== "string" ||
@@ -72,7 +47,7 @@ function decodeRow(row: Record<string, unknown>): StoredCheckedCard | undefined 
   }
   try {
     const item = JSON.parse(row.item_json) as unknown;
-    return isTopicBoardSnapshot(item)
+    return isCheckedCardItemForScope(scope, item)
       ? {
           key: row.card_key,
           item,
@@ -97,7 +72,7 @@ export function listCheckedCards(scope: CheckedCardScope): StoredCheckedCard[] {
       `)
       .all(scope)
       .flatMap((row) => {
-        const decoded = decodeRow(row);
+        const decoded = decodeRow(row, scope);
         return decoded ? [decoded] : [];
       });
   } finally {
@@ -108,7 +83,7 @@ export function listCheckedCards(scope: CheckedCardScope): StoredCheckedCard[] {
 export function upsertCheckedCard(
   scope: CheckedCardScope,
   key: string,
-  item: TopicBoard,
+  item: CheckedCardItem,
 ): StoredCheckedCard {
   const database = openDatabase();
   const now = new Date().toISOString();

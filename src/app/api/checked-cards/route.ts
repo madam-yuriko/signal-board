@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  deleteCheckedCard,
+  isCheckedCardItemForScope,
   isCheckedCardKey,
   isCheckedCardScope,
-  isTopicBoardSnapshot,
+} from "@/lib/checkedCards";
+import {
+  deleteCheckedCard,
   listCheckedCards,
   upsertCheckedCard,
 } from "@/lib/checkedCardsDb";
@@ -39,8 +41,7 @@ export async function PUT(request: Request) {
   const payload = body as { scope?: unknown; key?: unknown; item?: unknown };
   if (!isCheckedCardScope(payload.scope) ||
     !isCheckedCardKey(payload.key) ||
-    !isTopicBoardSnapshot(payload.item) ||
-    payload.item.domain !== payload.scope) {
+    !isCheckedCardItemForScope(payload.scope, payload.item)) {
     return invalidRequest("保存データが不正です。");
   }
   const card = upsertCheckedCard(payload.scope, payload.key, payload.item);
@@ -69,8 +70,7 @@ export async function POST(request: Request) {
     if (!value || typeof value !== "object") return [];
     const card = value as { key?: unknown; item?: unknown };
     if (!isCheckedCardKey(card.key) ||
-      !isTopicBoardSnapshot(card.item) ||
-      card.item.domain !== scope) return [];
+      !isCheckedCardItemForScope(scope, card.item)) return [];
     return [{ key: card.key, item: card.item }];
   });
   if (cards.length !== payload.cards.length) return invalidRequest("移行データが不正です。");

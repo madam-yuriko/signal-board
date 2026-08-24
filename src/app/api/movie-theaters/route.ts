@@ -37,6 +37,16 @@ function movieTheaterScheduleUrl(movieId: string, theaterPath: string): string {
   return `${EIGA_ORIGIN}/movie-theater/${movieId}/${prefecture}/${area}/${theaterId}/`;
 }
 
+function scheduledMovieIds(html: string, theaterPath: string): string[] {
+  const [, , prefecture, area, theaterId] = theaterPath.split("/");
+  if (!prefecture || !area || !theaterId) return [];
+  const pattern = new RegExp(
+    `href=["'](?:https?:\\/\\/[^/"']+)?\\/movie-theater\\/(\\d+)\\/${prefecture}\\/${area}\\/${theaterId}\\/?`,
+    "gi",
+  );
+  return [...new Set([...html.matchAll(pattern)].map((match) => match[1]))];
+}
+
 async function fetchHtml(url: string, signal?: AbortSignal): Promise<string> {
   const requestSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
@@ -194,6 +204,23 @@ export async function GET(request: Request) {
     } catch (error) {
       console.warn(`Unable to load movie theater options for prefecture ${prefecture}`, error);
       return NextResponse.json({ theaters: [] }, { status: 502 });
+    }
+  }
+  if (url.searchParams.get("schedule") === "1") {
+    const name = url.searchParams.get("theater")?.trim() ?? "";
+    if (!name) return NextResponse.json({ movieIds: [] }, { status: 400 });
+    try {
+      const theater = await resolveTheater(name, request.signal);
+      if (!theater) return NextResponse.json({ movieIds: [] }, { status: 404 });
+      const html = await fetchHtml(`${EIGA_ORIGIN}${theater.path}`, request.signal);
+      return NextResponse.json({
+        theater: { name: theater.name, url: `${EIGA_ORIGIN}${theater.path}` },
+        movieIds: scheduledMovieIds(html, theater.path),
+      });
+    } catch (error) {
+      if (request.signal.aborted) return new Response(null, { status: 499 });
+      console.warn(`Unable to load schedule for theater ${name}`, error);
+      return NextResponse.json({ movieIds: [] }, { status: 502 });
     }
   }
   const movieUrl = url.searchParams.get("movie") ?? "";

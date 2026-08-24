@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, RotateCcw, Search } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
+import CheckedOnlyFilter from "@/components/CheckedOnlyFilter";
 import {
   activeEventFilterCount,
   EMPTY_EVENT_FILTERS,
@@ -57,20 +58,6 @@ export default function EventFilterBar({
             className="w-full rounded-md border border-white/10 bg-black/30 py-2 pl-8 pr-3 text-xs text-white outline-none placeholder:text-gray-600 focus:border-red-400/60"
           />
         </div>
-        <button
-          type="button"
-          aria-pressed={checkedOnly}
-          onClick={() => onCheckedOnlyChange(!checkedOnly)}
-          disabled={checkedCount === 0 && !checkedOnly}
-          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs transition ${
-            checkedOnly
-              ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
-              : "border-white/10 text-gray-400 hover:border-emerald-300/40 hover:text-emerald-100"
-          } disabled:cursor-not-allowed disabled:opacity-40`}
-        >
-          {checkedOnly && <Check className="h-3.5 w-3.5" />}
-          観たいだけ（{checkedCount}）
-        </button>
         {filterCount > 0 && (
           <button
             type="button"
@@ -87,42 +74,7 @@ export default function EventFilterBar({
         )}
       </div>
 
-      <div className="space-y-3">
-        <div>
-          <div className="mb-1 text-[10px] font-semibold text-gray-500">
-            興行シリーズ
-          </div>
-          <div className="flex flex-wrap gap-1">
-            <button
-              type="button"
-              aria-pressed={filters.series.length === 0}
-              onClick={() => selectSeries()}
-              className={`rounded-md border px-2 py-1 text-[11px] ${
-                filters.series.length === 0
-                  ? "border-white/25 bg-white/10 text-white"
-                  : "border-white/8 text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              すべて
-            </button>
-            {series.map((item) => (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={filters.series.includes(item)}
-                onClick={() => selectSeries(item)}
-                className={`rounded-md border px-2 py-1 text-[11px] ${
-                  filters.series.includes(item)
-                    ? "border-red-400/40 bg-red-400/10 text-red-200"
-                    : "border-white/8 text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
-
+      <div className="grid gap-3 md:grid-cols-2">
         <div>
           <div className="mb-1 text-[10px] font-semibold text-gray-500">
             状態
@@ -162,6 +114,49 @@ export default function EventFilterBar({
             >
               国内開催のみ
             </button>
+          </div>
+        </div>
+
+        <CheckedOnlyFilter
+          label="観たい"
+          active={checkedOnly}
+          count={checkedCount}
+          onChange={onCheckedOnlyChange}
+          accent="red"
+        />
+
+        <div className="md:col-span-2">
+          <div className="mb-1 text-[10px] font-semibold text-gray-500">
+            興行シリーズ
+          </div>
+          <div className="flex flex-wrap gap-1">
+            <button
+              type="button"
+              aria-pressed={filters.series.length === 0}
+              onClick={() => selectSeries()}
+              className={`rounded-md border px-2 py-1 text-[11px] ${
+                filters.series.length === 0
+                  ? "border-white/25 bg-white/10 text-white"
+                  : "border-white/8 text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              すべて
+            </button>
+            {series.map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={filters.series.includes(item)}
+                onClick={() => selectSeries(item)}
+                className={`rounded-md border px-2 py-1 text-[11px] ${
+                  filters.series.includes(item)
+                    ? "border-red-400/40 bg-red-400/10 text-red-200"
+                    : "border-white/8 text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
           </div>
         </div>
       </div>

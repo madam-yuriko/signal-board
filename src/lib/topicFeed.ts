@@ -27,6 +27,7 @@ const EIGA_ORIGIN = "https://eiga.com";
 const FILMARKS_ORIGIN = "https://filmarks.com";
 const MOVIE_UPCOMING_DAYS = 90;
 const MOVIE_FEED_CACHE_VERSION = "movie-classification-v3";
+const INDIE_GAME_FEED_CACHE_VERSION = "indie-release-evidence-date-only-v1";
 const INDIE_GAME_MAX_ITEMS = 120;
 const INDIE_GAME_RELEASE_WINDOW_YEARS = 1;
 const TOKYO_REDEVELOPMENT_INDEX =
@@ -722,6 +723,7 @@ function indiePricesFor(value: string): TopicPrice[] {
 type IndieReleaseCandidate = {
   date: Date;
   platform: string;
+  evidence: number;
 };
 
 const INDIE_RELEASE_PLATFORM_PRIORITY = ["PS", "Switch", "XBOX", "Steam", "その他"] as const;
@@ -754,14 +756,20 @@ function indieReleaseCandidates(value: string, articleDate?: Date): IndieRelease
   const addCandidate = (match: RegExpMatchArray, year: number, month: number, day: number) => {
     const date = new Date(year, month - 1, day);
     if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return;
+    const matchIndex = match.index ?? 0;
     const contextStart = Math.max(0, (match.index ?? 0) - 90);
     const contextEnd = Math.min(value.length, (match.index ?? 0) + match[0].length + 90);
     const context = value.slice(contextStart, contextEnd);
     if (!/(発売|配信|リリース|販売|ローンチ|launch|release)/i.test(context)) return;
     if (/(?:発売|配信|リリース|販売)[^。！？!?]{0,20}(?:延期|中止|取りやめ)|(?:延期|中止|取りやめ)[^。！？!?]{0,20}(?:発売|配信|リリース|販売)/i.test(context)) return;
+    const before = value.slice(Math.max(0, matchIndex - 40), matchIndex);
+    const after = value.slice(matchIndex + match[0].length, matchIndex + match[0].length + 40);
+    const directlyFollowedByRelease = /^\s*(?:に|より|から)?\s*(?:正式)?(?:発売|配信|リリース|販売|ローンチ|launch|release)(?:予定|開始)?/i.test(after);
+    const directlyPrecededByRelease = /(?:発売日|配信日|リリース日|発売予定日|配信予定日|リリース予定日)(?:は|が|を|：|:)?\s*$/i.test(before);
     candidates.push({
       date,
-      platform: indieReleasePlatformFor(value, match.index ?? 0),
+      platform: indieReleasePlatformFor(value, matchIndex),
+      evidence: directlyFollowedByRelease || directlyPrecededByRelease ? 2 : 1,
     });
   };
 
@@ -786,10 +794,19 @@ function indieReleaseFor(value: string, articleDate?: Date): IndieReleaseCandida
   return indieReleaseCandidates(value, articleDate)
     .filter((candidate) => candidate.date >= earliest)
     .sort((a, b) => {
+      if (a.evidence !== b.evidence) return b.evidence - a.evidence;
       const priority = indieReleasePlatformPriority(a.platform) - indieReleasePlatformPriority(b.platform);
       if (priority !== 0) return priority;
       return a.date.getTime() - b.date.getTime();
     })[0];
+}
+
+function indieReleaseDateValue(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function hasJapaneseSupport(value: string): boolean {
@@ -835,7 +852,7 @@ async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefine
       platforms,
       prices,
       genres: indieGameGenresFromText(searchable, displayTitle),
-      releaseDate: release?.date.toISOString(),
+      releaseDate: release ? indieReleaseDateValue(release.date) : undefined,
       releasePlatform: release?.platform,
     };
   } catch {
@@ -1114,6 +1131,7 @@ async function fetchIndieGames(): Promise<TopicFeed> {
     mode: "live",
     sourceName: `取得対象: ${activeSources || "指定インディーゲームサイト"} / 条件適合カード: ${eligibleSources || "なし"}`,
     updatedAt: updatedAt(uniqueGames),
+    cacheVersion: INDIE_GAME_FEED_CACHE_VERSION,
   };
 }
 
@@ -1332,7 +1350,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-    ["signal-board-topic-feed-v47-movie-production-country-anime-evidence-cache"],
+  ["signal-board-topic-feed-v48-indie-release-evidence-date-only"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 
@@ -1372,7 +1390,9 @@ async function readLastGoodFeed(domain: TopicDomain): Promise<TopicFeed | undefi
     if (domain === "movie" && feed.cacheVersion !== MOVIE_FEED_CACHE_VERSION) {
       return undefined;
     }
-    if (domain === "indie-game" && feed.items.some((item) => !item.releaseDate || !Array.isArray(item.genres))) return undefined;
+    if (domain === "indie-game" &&
+      (feed.cacheVersion !== INDIE_GAME_FEED_CACHE_VERSION ||
+        feed.items.some((item) => !item.releaseDate || !Array.isArray(item.genres)))) return undefined;
     return feed;
   } catch {
     return undefined;
