@@ -11,7 +11,6 @@ const FETCH_CONCURRENCY = 24;
 const SCHEDULE_LIST_TIMEOUT_MS = 8_000;
 const SCHEDULE_DETAIL_TIMEOUT_MS = 4_000;
 const HISTORY_DETAIL_TIMEOUT_MS = 5_000;
-const SCHEDULE_CARD_LIMIT = 24;
 
 interface ScheduleEntry {
   sid: string;
@@ -422,13 +421,10 @@ export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
     sourceUpdatedAt: now.toISOString(),
     bouts: [],
   }));
-  const cardEntries = [...entries]
-    .sort((left, right) => {
-      const leftPriority = /3150|prime|dynamic|lemino|phoenix|lifetime|u-?next|treasure/i.test(left.name) ? 0 : 1;
-      const rightPriority = /3150|prime|dynamic|lemino|phoenix|lifetime|u-?next|treasure/i.test(right.name) ? 0 : 1;
-      return leftPriority - rightPriority;
-    })
-    .slice(0, SCHEDULE_CARD_LIMIT);
+  // カード取得対象をシリーズ名で絞ると、THE BATTLEなどの一般興行が
+  // 対象外になり、詳細ページにカードがあるのに空表示になる。
+  // 同時実行数は維持したまま、予定一覧に載っている全興行を取得する。
+  const cardEntries = entries;
   let cursor = 0;
   await Promise.all(
     Array.from({ length: Math.min(FETCH_CONCURRENCY, cardEntries.length) }, async () => {
