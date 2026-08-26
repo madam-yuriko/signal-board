@@ -66,9 +66,14 @@ export default function BoxingDashboard({
 
   const eventSeries = useMemo(() => availableSeries(events), [events]);
   const filtered = useMemo(() => {
-    return checkedOnly
-      ? checkedEvents
-      : filterPromotionEvents(events, filters);
+    if (!checkedOnly) return filterPromotionEvents(events, filters);
+
+    return [...checkedEvents].sort((left, right) => {
+      if (left.date !== right.date) {
+        return left.date.localeCompare(right.date);
+      }
+      return (left.startTime ?? "").localeCompare(right.startTime ?? "");
+    });
   }, [checkedEvents, checkedOnly, events, filters]);
   const filteredBouts = useMemo(() => flattenBouts(filtered), [filtered]);
   const allBouts = useMemo(() => flattenBouts(events), [events]);
