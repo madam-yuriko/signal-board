@@ -621,7 +621,7 @@ function TopicCard({
               className="border-b border-white/8 px-1 py-2 odd:border-r last:border-b-0 [&:nth-last-child(2)]:border-b-0"
             >
               <dt className="text-[10px] text-gray-500">{metric.label}</dt>
-                <dd className={`mt-0.5 text-xs font-semibold text-gray-100 ${metric.label === "メインキャスト" || metric.label === "価格" ? "whitespace-pre-line leading-relaxed" : ""}`}>
+                <dd className={`mt-0.5 text-xs font-semibold text-gray-100 ${metric.label === "メインキャスト" || metric.label === "価格" || metric.label === "発売日" ? "whitespace-pre-line leading-relaxed" : ""}`}>
                 {metric.value}
               </dd>
             </div>

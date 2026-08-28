@@ -273,14 +273,13 @@ async function loadEvent(
 ): Promise<BoxingEvent> {
   const detailsUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
   let bouts: Bout[] = [];
-  try {
-    bouts = parseBouts(
-      await fetchShiftJis(detailsUrl, detailTimeoutMs),
-      `boxmob-${entry.sid}`,
-    );
-  } catch (error) {
-    console.warn(`Unable to load Boxing Mobile card ${entry.sid}`, error);
-  }
+  // 通信失敗を「カード未発表（bouts=[]）」として返すと、不完全な予定
+  // 興行が正常データとして1日キャッシュされ、カードだけ消えた状態になる。
+  // カード未発表の正常系は、取得成功後に parseBouts が空配列を返す場合だけ。
+  bouts = parseBouts(
+    await fetchShiftJis(detailsUrl, detailTimeoutMs),
+    `boxmob-${entry.sid}`,
+  );
   const year = eventYear(entry.month, entry.day, now);
   const domestic = isDomesticVenue(entry.venue);
 

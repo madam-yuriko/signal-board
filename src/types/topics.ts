@@ -19,6 +19,11 @@ export interface TopicPrice {
   value: string;
 }
 
+export interface TopicReleaseDate {
+  platform: string;
+  value: string;
+}
+
 export interface TopicUpdate {
   at: string;
   text: string;
@@ -56,6 +61,8 @@ export interface TopicBoard {
   prices?: TopicPrice[];
   /** Primary release date used for the indie-game card date and release-window filter. */
   releaseDate?: string;
+  /** Platform-specific release dates shown in the indie-game card details. */
+  releaseDates?: TopicReleaseDate[];
   /** Article update date shown alongside the primary release date. */
   articleUpdatedLabel?: string;
   /** Platform whose release date was selected for the indie-game card. */

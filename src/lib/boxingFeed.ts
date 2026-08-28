@@ -274,6 +274,14 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
     fetchScheduledPosts(),
     fetchFinishedHistory(),
   ]);
+
+  if (boxmobResult.status === "rejected") {
+    const reason = boxmobResult.reason instanceof Error
+      ? boxmobResult.reason.message
+      : String(boxmobResult.reason);
+    throw new Error(`ボクシングモバイルの予定・対戦カード取得に失敗しました: ${reason}`);
+  }
+
   const boxmobSchedule = boxmobResult.status === "fulfilled"
     ? boxmobResult.value
     : [];
@@ -283,6 +291,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   const finishedPosts = finishedResult.status === "fulfilled"
     ? finishedResult.value
     : [];
+
   const today = tokyoDate(new Date());
   const recentCutoff = daysAgoIso(180);
   const jbcScheduledEvents = scheduledPosts
@@ -317,7 +326,6 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   );
   const storedEvents = mergeStoredBouts(uniqueEvents);
   const unavailableSources: string[] = [];
-  if (boxmobResult.status === "rejected") unavailableSources.push("ボクシングモバイル予定");
   if (scheduledResult.status === "rejected") unavailableSources.push("JBC予定");
   if (finishedResult.status === "rejected") unavailableSources.push("JBC結果");
   return {
@@ -335,7 +343,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v40-protect-curated-event-names"],
+  ["signal-board-boxing-feed-v41-fail-on-incomplete-schedule-cards"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],

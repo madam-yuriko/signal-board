@@ -11,11 +11,19 @@ import { movies } from "@/data/movies";
 import { redevelopments } from "@/data/redevelopments";
 import { redevelopmentSpotlights } from "@/data/redevelopmentSpotlights";
 import { indieGameGenresFromText } from "@/lib/indieGameGenres";
+import {
+  listIndieGameTracking,
+  markIndieGameTrackingChecked,
+  mergeIndieGameTracking,
+  type IndieGameTrackingRecord,
+  type IndieGameTrackingUpdate,
+} from "@/lib/indieGameTrackingDb";
 import type {
   MovieType,
   TopicBoard,
   TopicDomain,
   TopicPrice,
+  TopicReleaseDate,
   TopicStatusTone,
 } from "@/types/topics";
 
@@ -27,9 +35,11 @@ const EIGA_ORIGIN = "https://eiga.com";
 const FILMARKS_ORIGIN = "https://filmarks.com";
 const MOVIE_UPCOMING_DAYS = 90;
 const MOVIE_FEED_CACHE_VERSION = "movie-classification-v3";
-const INDIE_GAME_FEED_CACHE_VERSION = "indie-release-evidence-date-only-v1";
+const INDIE_GAME_FEED_CACHE_VERSION = "indie-platform-release-dates-v2";
 const INDIE_GAME_MAX_ITEMS = 120;
 const INDIE_GAME_RELEASE_WINDOW_YEARS = 1;
+const INDIE_TRACKING_RECHECK_DAYS = 30;
+const INDIE_TRACKING_SEARCH_LIMIT = 24;
 const TOKYO_REDEVELOPMENT_INDEX =
   "https://www.toshiseibi.metro.tokyo.lg.jp/machizukuri/shigaichi_seibi/sai-kai/saikaihatsu";
 const SAPPORO_REDEVELOPMENT_INDEX =
@@ -46,7 +56,9 @@ interface FeedEntry {
   platforms?: string[];
   prices?: TopicPrice[];
   releaseDate?: string;
+  releaseDates?: TopicReleaseDate[];
   releasePlatform?: string;
+  trackingSources?: string[];
   movieType?: MovieType;
   genres?: string[];
   reviewScore?: string;
@@ -723,6 +735,7 @@ function indiePricesFor(value: string): TopicPrice[] {
 type IndieReleaseCandidate = {
   date: Date;
   platform: string;
+  platforms: string[];
   evidence: number;
 };
 
@@ -733,7 +746,32 @@ function indieReleasePlatformPriority(platform: string): number {
   return index === -1 ? INDIE_RELEASE_PLATFORM_PRIORITY.length : index;
 }
 
-function indieReleasePlatformFor(value: string, dateIndex: number): string {
+function indieReleasePlatformsFor(value: string, dateIndex: number): string[] {
+  const sentenceStart = Math.max(
+    value.lastIndexOf("。", dateIndex - 1),
+    value.lastIndexOf("！", dateIndex - 1),
+    value.lastIndexOf("？", dateIndex - 1),
+    value.lastIndexOf("!", dateIndex - 1),
+    value.lastIndexOf("?", dateIndex - 1),
+    value.lastIndexOf("\n", dateIndex - 1),
+  ) + 1;
+  const sentenceEnds = ["。", "！", "？", "!", "?", "\n"]
+    .map((delimiter) => value.indexOf(delimiter, dateIndex))
+    .filter((index) => index >= 0);
+  const sentenceEnd = sentenceEnds.length > 0 ? Math.min(...sentenceEnds) : value.length;
+  const sentence = value.slice(sentenceStart, sentenceEnd + 1);
+  const sentenceDateCount = [...sentence.matchAll(
+    /(?:20\d{2}年\s*)?\d{1,2}月\s*\d{1,2}日?|20\d{2}[./-]\d{1,2}[./-]\d{1,2}/g,
+  )].length;
+  if (sentence.length <= 260 && sentenceDateCount <= 1) {
+    const sentencePlatforms = indiePlatformsFor(sentence);
+    if (sentencePlatforms.length > 0) {
+      return [...sentencePlatforms].sort(
+        (a, b) => indieReleasePlatformPriority(a) - indieReleasePlatformPriority(b),
+      );
+    }
+  }
+
   const mentions = [
     { platform: "PS", pattern: /\bPS(?:5|4)?\b|PlayStation|プレイステーション/gi },
     { platform: "Switch", pattern: /Nintendo\s+Switch|Switch\s*2|ニンテンドー(?:スイッチ|Switch)/gi },
@@ -743,12 +781,13 @@ function indieReleasePlatformFor(value: string, dateIndex: number): string {
     platform,
     distance: Math.abs((match.index ?? 0) - dateIndex),
   })));
-  return mentions
+  const nearest = mentions
     .filter((mention) => mention.distance <= 90)
     .sort((a, b) => {
-      const priority = indieReleasePlatformPriority(a.platform) - indieReleasePlatformPriority(b.platform);
-      return priority !== 0 ? priority : a.distance - b.distance;
-    })[0]?.platform ?? "その他";
+      if (a.distance !== b.distance) return a.distance - b.distance;
+      return indieReleasePlatformPriority(a.platform) - indieReleasePlatformPriority(b.platform);
+    })[0]?.platform;
+  return [nearest ?? "その他"];
 }
 
 function indieReleaseCandidates(value: string, articleDate?: Date): IndieReleaseCandidate[] {
@@ -766,9 +805,11 @@ function indieReleaseCandidates(value: string, articleDate?: Date): IndieRelease
     const after = value.slice(matchIndex + match[0].length, matchIndex + match[0].length + 40);
     const directlyFollowedByRelease = /^\s*(?:に|より|から)?\s*(?:正式)?(?:発売|配信|リリース|販売|ローンチ|launch|release)(?:予定|開始)?/i.test(after);
     const directlyPrecededByRelease = /(?:発売日|配信日|リリース日|発売予定日|配信予定日|リリース予定日)(?:は|が|を|：|:)?\s*$/i.test(before);
+    const releasePlatforms = indieReleasePlatformsFor(value, matchIndex);
     candidates.push({
       date,
-      platform: indieReleasePlatformFor(value, matchIndex),
+      platform: releasePlatforms[0] ?? "その他",
+      platforms: releasePlatforms,
       evidence: directlyFollowedByRelease || directlyPrecededByRelease ? 2 : 1,
     });
   };
@@ -781,6 +822,8 @@ function indieReleaseCandidates(value: string, articleDate?: Date): IndieRelease
   }
   if (articleDate) {
     for (const match of value.matchAll(/(\d{1,2})月\s*(\d{1,2})日?/g)) {
+      const before = value.slice(Math.max(0, (match.index ?? 0) - 12), match.index ?? 0);
+      if (/20\d{2}年\s*$/.test(before)) continue;
       addCandidate(match, articleDate.getFullYear(), Number(match[1]), Number(match[2]));
     }
   }
@@ -809,12 +852,448 @@ function indieReleaseDateValue(date: Date): string {
   ].join("-");
 }
 
+function indieReleaseDatesFor(value: string, articleDate?: Date): TopicReleaseDate[] {
+  const selected = new Map<string, IndieReleaseCandidate>();
+  for (const candidate of indieReleaseCandidates(value, articleDate)) {
+    for (const platform of candidate.platforms) {
+      const current = selected.get(platform);
+      if (!current || candidate.evidence > current.evidence ||
+        (candidate.evidence === current.evidence && candidate.date < current.date)) {
+        selected.set(platform, candidate);
+      }
+    }
+  }
+  return orderedIndiePlatforms(selected.keys()).flatMap((platform) => {
+    const candidate = selected.get(platform);
+    return candidate ? [{ platform, value: indieReleaseDateValue(candidate.date) }] : [];
+  });
+}
+
 function hasJapaneseSupport(value: string): boolean {
   return /(?:対応言語|言語|字幕|音声|テキスト|表示)[^。\n]{0,80}日本語|日本語[^。\n]{0,80}(?:対応|版|化|字幕|音声|表示|収録|テキスト)|Japanese/i.test(value);
 }
 
 function hasJapanReleaseEvidence(value: string): boolean {
   return /日本(?:国内)?[^。\n]{0,80}(?:発売|リリース|配信)(?:予定|開始|中|済み|された|されている|した)?|国内[^。\n]{0,80}(?:発売|リリース|配信)(?:予定|開始|中|済み|された|されている|した)?|(?:Steam|Switch|PS5|PS4|Xbox)[^。\n]{0,80}(?:発売|リリース|配信)(?:予定|開始|中|済み|された|されている|した)?|(?:正式)?(?:発売|リリース|配信)(?:予定|されて|済み|開始|中)|正式リリース|released/i.test(value);
+}
+
+const INDIE_PLATFORM_DISPLAY_ORDER = ["Steam", "PS", "Switch", "XBOX", "その他"] as const;
+
+function normalizeIndieTrackingTitle(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/[「」『』【】™®©]/g, "")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/[（(][ァ-ヶー・\s]+[）)]$/g, "")
+    .replace(/\s+/g, "")
+    .toLocaleLowerCase("en-US")
+    .trim();
+}
+
+function orderedIndiePlatforms(values: Iterable<string>): string[] {
+  const unique = new Set(values);
+  const known = INDIE_PLATFORM_DISPLAY_ORDER.filter((platform) => unique.delete(platform));
+  return [...known, ...unique];
+}
+
+function mergeIndiePrices(current: TopicPrice[] = [], supplemental: TopicPrice[] = []): TopicPrice[] {
+  const prices = new Map<string, string>();
+  for (const price of current) prices.set(price.platform, price.value);
+  for (const price of supplemental) prices.set(price.platform, price.value);
+  return orderedIndiePlatforms(prices.keys()).flatMap((platform) => {
+    const value = prices.get(platform);
+    return value ? [{ platform, value }] : [];
+  });
+}
+
+function releaseDatesWithPrimary(
+  releaseDates: TopicReleaseDate[] = [],
+  releaseDate?: string,
+  releasePlatform?: string,
+): TopicReleaseDate[] {
+  if (!releaseDate) return releaseDates;
+  if (releaseDates.some((item) => item.platform === (releasePlatform ?? "その他"))) {
+    return releaseDates;
+  }
+  return [...releaseDates, { platform: releasePlatform ?? "その他", value: releaseDate }];
+}
+
+function mergeIndieReleaseDates(
+  current: TopicReleaseDate[] = [],
+  supplemental: TopicReleaseDate[] = [],
+): TopicReleaseDate[] {
+  const dates = new Map<string, string>();
+  for (const item of current) dates.set(item.platform, item.value);
+  for (const item of supplemental) dates.set(item.platform, item.value);
+  return orderedIndiePlatforms(dates.keys()).flatMap((platform) => {
+    const value = dates.get(platform);
+    return value ? [{ platform, value }] : [];
+  });
+}
+
+function indieReleaseDatesLabel(releaseDates: TopicReleaseDate[]): string {
+  return releaseDates.length > 0
+    ? releaseDates.map((item) => `${item.platform}: ${dateLabel(item.value, "").trim()}`).join("\n")
+    : "不明";
+}
+
+function trackingUpdateForEntry(entry: FeedEntry): IndieGameTrackingUpdate | undefined {
+  if (!entry.link || entry.platforms?.length === 0) return undefined;
+  const titleKey = normalizeIndieTrackingTitle(entry.title);
+  if (!titleKey) return undefined;
+  const observedAt = parseDate(entry.date)?.toISOString() ?? new Date().toISOString();
+  return {
+    titleKey,
+    title: entry.title,
+    platforms: entry.platforms ?? [],
+    prices: entry.prices,
+    releaseDate: entry.releaseDate,
+    releaseDates: releaseDatesWithPrimary(entry.releaseDates, entry.releaseDate, entry.releasePlatform),
+    releasePlatform: entry.releasePlatform,
+    evidence: {
+      source: entry.source ?? "外部サイト",
+      url: entry.link,
+      observedAt,
+    },
+  };
+}
+
+function indieSupplementFromText({
+  expectedTitle,
+  heading,
+  description,
+  content,
+  date,
+  image,
+  source,
+  link,
+}: {
+  expectedTitle: string;
+  heading: string;
+  description?: string;
+  content: string;
+  date?: string;
+  image?: string;
+  source: string;
+  link: string;
+}): FeedEntry | undefined {
+  const displayTitle = gameTitleFor(heading, content, source);
+  if (normalizeIndieTrackingTitle(displayTitle) !== normalizeIndieTrackingTitle(expectedTitle)) {
+    return undefined;
+  }
+  const searchable = `${displayTitle} ${description ?? ""} ${content}`;
+  const platforms = indiePlatformsFor(searchable);
+  const release = indieReleaseFor(searchable, parseDate(date));
+  const releaseDates = indieReleaseDatesFor(searchable, parseDate(date))
+    .filter((item) => platforms.includes(item.platform));
+  if (platforms.length === 0 || (!release && !hasJapanReleaseEvidence(searchable))) {
+    return undefined;
+  }
+  return {
+    title: displayTitle,
+    link,
+    description: description || plainText(content).slice(0, 260),
+    date,
+    image,
+    source,
+    platforms,
+    prices: indiePricesFor(searchable).filter((price) => platforms.includes(price.platform)),
+    releaseDate: release ? indieReleaseDateValue(release.date) : undefined,
+    releaseDates,
+    releasePlatform: release?.platform,
+  };
+}
+
+interface FamitsuSearchArticle {
+  id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  content?: unknown;
+  publishedAt?: unknown;
+  thumbnailUrl?: unknown;
+}
+
+async function searchFamitsuIndieTitle(title: string): Promise<FeedEntry[]> {
+  const params = new URLSearchParams({
+    type: "article",
+    q: title,
+    max: "100",
+    order: "desc",
+    page: "1",
+    executedPagePath: "/search",
+  });
+  const response = await fetch(`https://www.famitsu.com/api/search?${params.toString()}`, {
+    headers: { Accept: "application/json", "User-Agent": "SignalBoard/1.0 (+public data reader)" },
+    next: { revalidate: REVALIDATE_SECONDS },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok && response.status !== 400) {
+    throw new Error(`Famitsu search returned ${response.status}`);
+  }
+  const payload = (await response.json()) as { data?: FamitsuSearchArticle[] };
+  return (payload.data ?? []).flatMap((article) => {
+    if (typeof article.id !== "string" ||
+      typeof article.title !== "string" ||
+      typeof article.content !== "string") return [];
+    const date = typeof article.publishedAt === "string" ? article.publishedAt : undefined;
+    const published = parseDate(date);
+    if (!published) return [];
+    const yearMonth = `${published.getFullYear()}${String(published.getMonth() + 1).padStart(2, "0")}`;
+    const entry = indieSupplementFromText({
+      expectedTitle: title,
+      heading: article.title,
+      description: typeof article.description === "string" ? article.description : undefined,
+      content: plainText(article.content),
+      date,
+      image: typeof article.thumbnailUrl === "string" ? article.thumbnailUrl : undefined,
+      source: "ファミ通.comインディーゲーム",
+      link: `https://www.famitsu.com/article/${yearMonth}/${article.id}`,
+    });
+    return entry ? [entry] : [];
+  });
+}
+
+async function fetchIndieSupplementArticle(
+  entry: FeedEntry,
+  expectedTitle: string,
+): Promise<FeedEntry | undefined> {
+  if (!entry.link) return undefined;
+  try {
+    const html = await fetchText(entry.link);
+    const contentHtml = articleContentHtml(html);
+    const contentText = plainText(contentHtml);
+    const headings = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi)]
+      .map((match) => plainText(match[1]));
+    const heading = headings.at(-1) ?? entry.title;
+    return indieSupplementFromText({
+      expectedTitle,
+      heading,
+      description: plainText(
+        metaContent(html, "description") ??
+        metaContent(html, "og:description") ??
+        entry.description ?? "",
+      ),
+      content: contentText,
+      date: articleUpdatedDateFor(html, contentText) ?? entry.date,
+      image: metaContent(html, "og:image") ?? entry.image,
+      source: entry.source ?? "外部サイト",
+      link: entry.link,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+async function searchWordPressIndieTitle(
+  title: string,
+  source: "AUTOMATON" | "Indie Games Japan",
+  origin: string,
+): Promise<FeedEntry[]> {
+  try {
+    const xml = await fetchText(
+      `${origin}/search/${encodeURIComponent(title)}/feed/rss2/`,
+      "application/rss+xml,application/xml",
+    );
+    const candidates = parseFeed(xml)
+      .map((entry) => ({ ...entry, source }))
+      .filter((entry) => {
+        const extracted = gameTitleFor(entry.title, entry.description, source);
+        return normalizeIndieTrackingTitle(extracted) === normalizeIndieTrackingTitle(title) ||
+          normalizeIndieTrackingTitle(entry.title).includes(normalizeIndieTrackingTitle(title));
+      })
+      .slice(0, 5);
+    return (await mapWithConcurrency(
+      candidates,
+      2,
+      (entry) => fetchIndieSupplementArticle(entry, title),
+    )).filter((entry): entry is FeedEntry => Boolean(entry));
+  } catch {
+    return [];
+  }
+}
+
+async function searchIndieFollowups(title: string): Promise<{
+  entries: FeedEntry[];
+  succeeded: boolean;
+}> {
+  const results = await Promise.allSettled([
+    searchFamitsuIndieTitle(title),
+    searchWordPressIndieTitle(title, "AUTOMATON", "https://automaton-media.com"),
+    searchWordPressIndieTitle(title, "Indie Games Japan", "https://indiegamesjapan.com"),
+  ]);
+  return {
+    entries: results.flatMap((result) => result.status === "fulfilled" ? result.value : []),
+    succeeded: results.some((result) => result.status === "fulfilled"),
+  };
+}
+
+function entryWithIndieTracking(
+  entry: FeedEntry,
+  tracking: IndieGameTrackingRecord | undefined,
+): FeedEntry {
+  if (!tracking) return entry;
+  const currentPriority = indieReleasePlatformPriority(entry.releasePlatform ?? "その他");
+  const trackedPriority = indieReleasePlatformPriority(tracking.releasePlatform ?? "その他");
+  const useTrackedRelease = Boolean(tracking.releaseDate) &&
+    (!entry.releaseDate || trackedPriority <= currentPriority);
+  const platforms = orderedIndiePlatforms([...(entry.platforms ?? []), ...tracking.platforms]);
+  const releaseDates = mergeIndieReleaseDates(
+    releaseDatesWithPrimary(entry.releaseDates, entry.releaseDate, entry.releasePlatform),
+    tracking.releaseDates,
+  ).filter((item) => platforms.includes(item.platform));
+  return {
+    ...entry,
+    platforms,
+    prices: mergeIndiePrices(entry.prices, tracking.prices),
+    releaseDate: useTrackedRelease ? tracking.releaseDate : entry.releaseDate,
+    releaseDates,
+    releasePlatform: useTrackedRelease ? tracking.releasePlatform : entry.releasePlatform,
+    trackingSources: [...new Set(
+      tracking.evidence
+        .filter((evidence) => evidence.url !== entry.link)
+        .map((evidence) => evidence.source),
+    )],
+  };
+}
+
+async function refreshIndieGameTracking(entries: FeedEntry[]): Promise<FeedEntry[]> {
+  try {
+    const baseUpdates = entries.flatMap((entry) => {
+      const update = trackingUpdateForEntry(entry);
+      return update ? [update] : [];
+    });
+    mergeIndieGameTracking(baseUpdates);
+
+    const currentTracking = new Map(
+      listIndieGameTracking().map((record) => [record.titleKey, record]),
+    );
+    const uniqueEntries = [...new Map(
+      entries.map((entry) => [normalizeIndieTrackingTitle(entry.title), entry]),
+    ).values()];
+    const recheckCutoff = Date.now() - INDIE_TRACKING_RECHECK_DAYS * 24 * 60 * 60 * 1_000;
+    const followupCandidates = uniqueEntries
+      .filter((entry) => {
+        const titleKey = normalizeIndieTrackingTitle(entry.title);
+        const tracking = currentTracking.get(titleKey);
+        const platforms = new Set([...(entry.platforms ?? []), ...(tracking?.platforms ?? [])]);
+        const hasConsole = ["PS", "Switch", "XBOX"].some((platform) => platforms.has(platform));
+        const datedPlatforms = new Set([
+          ...(entry.releaseDates ?? []).map((item) => item.platform),
+          ...(tracking?.releaseDates ?? []).map((item) => item.platform),
+        ]);
+        const hasMissingPlatformDates = [...platforms]
+          .some((platform) => platform !== "その他" && !datedPlatforms.has(platform));
+        const checkedAt = tracking?.lastCheckedAt ? Date.parse(tracking.lastCheckedAt) : 0;
+        return (!hasConsole || hasMissingPlatformDates) &&
+          (!Number.isFinite(checkedAt) || checkedAt < recheckCutoff);
+      })
+      .sort((a, b) => a.title.localeCompare(b.title, "en"))
+      .slice(0, INDIE_TRACKING_SEARCH_LIMIT);
+
+    const followups = await mapWithConcurrency(followupCandidates, 3, async (entry) => ({
+      titleKey: normalizeIndieTrackingTitle(entry.title),
+      result: await searchIndieFollowups(entry.title),
+    }));
+    const supplementalUpdates = followups.flatMap(({ result }) =>
+      result.entries.flatMap((entry) => {
+        const update = trackingUpdateForEntry(entry);
+        return update ? [update] : [];
+      }));
+    mergeIndieGameTracking(supplementalUpdates);
+    markIndieGameTrackingChecked(
+      followups.filter(({ result }) => result.succeeded).map(({ titleKey }) => titleKey),
+    );
+
+    const refreshed = new Map(
+      listIndieGameTracking().map((record) => [record.titleKey, record]),
+    );
+    return entries.map((entry) =>
+      entryWithIndieTracking(entry, refreshed.get(normalizeIndieTrackingTitle(entry.title))));
+  } catch (error) {
+    console.warn("Unable to refresh indie-game platform tracking", error);
+    return entries;
+  }
+}
+
+function boardWithIndieTracking(
+  item: TopicBoard,
+  tracking: IndieGameTrackingRecord | undefined,
+): TopicBoard {
+  if (!tracking || item.domain !== "indie-game") return item;
+  const platforms = orderedIndiePlatforms([...(item.platforms ?? []), ...tracking.platforms]);
+  const mergedPrices = mergeIndiePrices(item.prices, tracking.prices);
+  const mergedReleaseDates = mergeIndieReleaseDates(
+    releaseDatesWithPrimary(item.releaseDates, item.releaseDate, item.releasePlatform),
+    tracking.releaseDates,
+  ).filter((entry) => platforms.includes(entry.platform));
+  const currentPriority = indieReleasePlatformPriority(item.releasePlatform ?? "その他");
+  const trackedPriority = indieReleasePlatformPriority(tracking.releasePlatform ?? "その他");
+  const useTrackedRelease = Boolean(tracking.releaseDate) &&
+    (!item.releaseDate || trackedPriority <= currentPriority);
+  const releaseDate = useTrackedRelease ? tracking.releaseDate : item.releaseDate;
+  const releasePlatform = useTrackedRelease ? tracking.releasePlatform : item.releasePlatform;
+  const supplementalSources = [...new Set(
+    tracking.evidence
+      .filter((evidence) => evidence.url !== item.sourceUrl)
+      .map((evidence) => evidence.source),
+  )];
+  const metricValues = new Map(item.metrics.map((metric) => [metric.label, metric.value]));
+  metricValues.set("プラットフォーム", platforms.join(" / "));
+  metricValues.set(
+    "価格",
+    mergedPrices.length > 0
+      ? mergedPrices.map((price) => `${price.platform}: ${price.value}`).join("\n")
+      : "記事記載なし",
+  );
+  metricValues.set("発売日", indieReleaseDatesLabel(mergedReleaseDates));
+  if (supplementalSources.length > 0) {
+    metricValues.set("情報補完", `${supplementalSources.join(" / ")}の後続記事`);
+  }
+  const metricOrder = [...item.metrics.map((metric) => metric.label)];
+  if (supplementalSources.length > 0 && !metricOrder.includes("情報補完")) {
+    metricOrder.push("情報補完");
+  }
+  const nonPlatformTags = item.tags.filter(
+    (tag) => !INDIE_PLATFORM_DISPLAY_ORDER.includes(tag as typeof INDIE_PLATFORM_DISPLAY_ORDER[number]),
+  );
+  return {
+    ...item,
+    dateLabel: dateLabel(
+      releaseDate,
+      `${releasePlatform && releasePlatform !== "その他" ? `${releasePlatform}発売日` : "発売日"}`,
+    ),
+    releaseDate,
+    releaseDates: mergedReleaseDates,
+    releasePlatform,
+    platforms,
+    prices: mergedPrices,
+    metrics: metricOrder.flatMap((label) => {
+      const value = metricValues.get(label);
+      return value === undefined ? [] : [{ label, value }];
+    }),
+    tags: [...nonPlatformTags, ...platforms],
+  };
+}
+
+function feedWithIndieTracking(feed: TopicFeed): TopicFeed {
+  try {
+    const tracking = new Map(
+      listIndieGameTracking().map((record) => [record.titleKey, record]),
+    );
+    const items = feed.items.map((item) =>
+      boardWithIndieTracking(item, tracking.get(normalizeIndieTrackingTitle(item.title))));
+    const supplemented = items.some((item) => item.metrics.some((metric) => metric.label === "情報補完"));
+    return {
+      ...feed,
+      items,
+      sourceName: supplemented && !feed.sourceName.includes("後続記事追跡")
+        ? `${feed.sourceName} / 後続記事追跡: 3サイト`
+        : feed.sourceName,
+    };
+  } catch (error) {
+    console.warn("Unable to apply indie-game tracking metadata", error);
+    return feed;
+  }
 }
 
 async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefined> {
@@ -841,6 +1320,8 @@ async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefine
     const prices = indiePricesFor(searchable).filter((price) => platforms.includes(price.platform));
     const articleDate = parseDate(date);
     const release = indieReleaseFor(searchable, articleDate);
+    const releaseDates = indieReleaseDatesFor(searchable, articleDate)
+      .filter((item) => platforms.includes(item.platform));
     const eligible = Boolean(release) && hasJapanReleaseEvidence(searchable) && hasJapaneseSupport(searchable) && platforms.length > 0;
     if (!eligible) return undefined;
     return {
@@ -853,6 +1334,7 @@ async function fetchIndieArticle(entry: FeedEntry): Promise<FeedEntry | undefine
       prices,
       genres: indieGameGenresFromText(searchable, displayTitle),
       releaseDate: release ? indieReleaseDateValue(release.date) : undefined,
+      releaseDates,
       releasePlatform: release?.platform,
     };
   } catch {
@@ -1070,8 +1552,9 @@ async function fetchIndieGames(): Promise<TopicFeed> {
   });
   const verifiedEntries = (await mapWithConcurrency(uniqueCandidates, 8, fetchIndieArticle))
     .filter((entry): entry is FeedEntry => Boolean(entry));
+  const trackedEntries = await refreshIndieGameTracking(verifiedEntries);
   const uniqueGames = [...new Map(
-    verifiedEntries.map((entry) => [normalizeMovieTitle(entry.title), entry]),
+    trackedEntries.map((entry) => [normalizeIndieTrackingTitle(entry.title), entry]),
   ).values()].sort((a, b) => {
     const platformPriority = indieReleasePlatformPriority(a.releasePlatform ?? "その他") - indieReleasePlatformPriority(b.releasePlatform ?? "その他");
     if (platformPriority !== 0) return platformPriority;
@@ -1094,6 +1577,7 @@ async function fetchIndieGames(): Promise<TopicFeed> {
       statusTone: "success",
       dateLabel: dateLabel(entry.releaseDate, `${entry.releasePlatform && entry.releasePlatform !== "その他" ? `${entry.releasePlatform}発売日` : "発売日"}`),
       releaseDate: entry.releaseDate,
+      releaseDates: entry.releaseDates,
       releasePlatform: entry.releasePlatform,
       articleUpdatedLabel: dateLabel(entry.date, "記事更新"),
       location: entry.source ?? "外部メディア",
@@ -1113,9 +1597,17 @@ async function fetchIndieGames(): Promise<TopicFeed> {
             ? entry.prices.map((price) => `${price.platform}: ${price.value}`).join("\n")
             : "記事記載なし",
         },
-        { label: "発売日", value: dateLabel(entry.releaseDate, "").trim() || "不明" },
+        {
+          label: "発売日",
+          value: indieReleaseDatesLabel(
+            releaseDatesWithPrimary(entry.releaseDates, entry.releaseDate, entry.releasePlatform),
+          ),
+        },
         { label: "記事更新", value: dateLabel(entry.date, "").trim() || "不明" },
         { label: "対応言語", value: "日本語あり" },
+        ...(entry.trackingSources?.length
+          ? [{ label: "情報補完", value: `${entry.trackingSources.join(" / ")}の後続記事` }]
+          : []),
       ],
       updates: [{ at: dateLabel(entry.date, "").trim() || "最新", text: entry.description || entry.title }],
       tags: [entry.source ?? "外部サイト", ...platforms, category],
@@ -1129,7 +1621,7 @@ async function fetchIndieGames(): Promise<TopicFeed> {
   return {
     items,
     mode: "live",
-    sourceName: `取得対象: ${activeSources || "指定インディーゲームサイト"} / 条件適合カード: ${eligibleSources || "なし"}`,
+    sourceName: `取得対象: ${activeSources || "指定インディーゲームサイト"} / 条件適合カード: ${eligibleSources || "なし"} / 後続記事追跡: 3サイト`,
     updatedAt: updatedAt(uniqueGames),
     cacheVersion: INDIE_GAME_FEED_CACHE_VERSION,
   };
@@ -1350,7 +1842,7 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
 
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-  ["signal-board-topic-feed-v48-indie-release-evidence-date-only"],
+  ["signal-board-topic-feed-v54-indie-platform-release-dates"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 
@@ -1393,7 +1885,7 @@ async function readLastGoodFeed(domain: TopicDomain): Promise<TopicFeed | undefi
     if (domain === "indie-game" &&
       (feed.cacheVersion !== INDIE_GAME_FEED_CACHE_VERSION ||
         feed.items.some((item) => !item.releaseDate || !Array.isArray(item.genres)))) return undefined;
-    return feed;
+    return domain === "indie-game" ? feedWithIndieTracking(feed) : feed;
   } catch {
     return undefined;
   }
@@ -1476,7 +1968,7 @@ export async function getTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
           if (staleFeed.mode === "live" && staleFeed.items.length > 0 &&
             (domain !== "indie-game" || staleFeed.items.every((item) => Boolean(item.releaseDate) && Array.isArray(item.genres)))) {
             console.warn(`Using stale ${domain} feed cache ${cacheKey}`);
-            return staleFeed;
+            return domain === "indie-game" ? feedWithIndieTracking(staleFeed) : staleFeed;
           }
         } catch {
           // Try the next legacy cache before falling back to saved data.
