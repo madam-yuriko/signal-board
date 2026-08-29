@@ -38,10 +38,14 @@ export function formatDate(iso: string): string {
   })`;
 }
 
-/** "2026-06-06" -> "6/6" */
+/** "2026-06-06" -> "2026/06/06" */
 export function formatShortDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("/");
 }
 
 /** 今日（ローカル0時）以降の日付かどうか */

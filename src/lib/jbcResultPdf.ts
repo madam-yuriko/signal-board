@@ -46,7 +46,7 @@ function fighterName(
       (item) =>
         item.x >= minX &&
         item.x <= maxX &&
-        item.size >= 9 &&
+        item.size >= 6 &&
         item.text.trim(),
     )
     .sort((a, b) => b.y - a.y || a.x - b.x);
@@ -59,7 +59,7 @@ function fighterName(
     else lines.push({ y: part.y, parts: [part] });
   }
 
-  return normalizeText(
+  const name = normalizeText(
     lines
       .sort((a, b) => b.y - a.y)
       .map((line) =>
@@ -70,6 +70,9 @@ function fighterName(
       )
       .join(""),
   );
+  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{2}/u.test(name)
+    ? name
+    : undefined;
 }
 
 function resultMethod(
@@ -95,19 +98,28 @@ function weightClass(items: PositionedText[], markerY: number): string {
         (item) =>
           item.x >= 39 &&
           item.x < 80 &&
-          Math.abs(item.y - markerY) <= 6,
+          Math.abs(item.y - markerY) <= 14,
       )
       .sort((a, b) => a.x - b.x)
       .map((item) => item.text)
       .join(" "),
   )
-    .replace(/^\d+\s*/, "")
+    .normalize("NFKC")
+    .replace(/(\d),(?=\d)/g, "$1.")
+    // JBC PDFではラウンド数と階級が一つのテキスト片になる場合がある
+    // （例: "8 110 P"）。契約重量そのものの "110 P" は残す。
+    .replace(
+      /^\d{1,2}\s+(?=(?:Mm|L\.F|F|S\.F|B|S\.B|Fe|S\.Fe|L|S\.L|W|S\.W|M|\d+(?:\.\d+)?\s*(?:kg|P))\b)/i,
+      "",
+    )
     .replace(/(?:勝|分)$/, "")
     .trim();
 
   if (WEIGHT_CLASSES[raw]) return WEIGHT_CLASSES[raw];
-  if (/^\d+(?:\.\d+)?\s*P$/i.test(raw)) {
-    return `${raw.replace(/\s*P$/i, "")}ポンド契約`;
+  const pounds = raw.match(/^(\d+(?:\.\d+)?)\s*P$/i);
+  if (pounds) {
+    const kilograms = Math.round(Number(pounds[1]) * 0.45359237 * 10) / 10;
+    return `${kilograms.toFixed(1)}kg契約`;
   }
   if (/^\d+(?:\.\d+)?\s*kg$/i.test(raw)) {
     return `${raw.replace(/\s*kg$/i, "")}kg契約`;
@@ -145,25 +157,31 @@ function parsePage(items: PositionedText[], eventId: string, page: number): Bout
     const row = items.filter((item) => item.y < upper && item.y >= lower);
     const redName = fighterName(row, 150, 218);
     const blueName = fighterName(row, 435, 505);
-    if (!redName || !blueName) return [];
-
-    const redWon = row.some(
+    const explicitRedWin = row.some(
       (item) => item.x >= 80 && item.x <= 106 && item.text.includes("勝"),
     );
-    const blueWon = row.some(
+    const explicitBlueWin = row.some(
       (item) => item.x >= 360 && item.x <= 390 && item.text.includes("勝"),
     );
+    const redMethod = resultMethod(row, 285, 370);
+    const blueMethod = resultMethod(row, 570, 655);
+    const redWon = explicitRedWin || (!explicitBlueWin && Boolean(redMethod) && !blueMethod);
+    const blueWon = explicitBlueWin || (!explicitRedWin && Boolean(blueMethod) && !redMethod);
     const method = redWon
-      ? resultMethod(row, 285, 370)
+      ? redMethod
       : blueWon
-        ? resultMethod(row, 570, 655)
-        : resultMethod(row, 285, 655);
+        ? blueMethod
+        : redMethod ?? blueMethod ?? resultMethod(row, 285, 655);
+    // 旧様式PDFでは選手名が図形化され、pdf.jsで文字を取得できない。
+    // その場合も試合番号・勝敗・決着を保持し、呼び出し側でカード順と照合する。
+    if ((!redName || !blueName) && !method && !redWon && !blueWon) return [];
+    const boutNumber = marker.text.trim();
 
     return [
       {
-        id: `${eventId}-p${page}-b${marker.text.trim()}`,
-        jpFighter: redName,
-        opponent: blueName,
+        id: `${eventId}-p${page}-b${boutNumber}`,
+        jpFighter: redName ?? `__jbc_red_${boutNumber}`,
+        opponent: blueName ?? `__jbc_blue_${boutNumber}`,
         weightClass: weightClass(row, marker.y),
         organizations: organizationsFromText(row.map((item) => item.text).join(" ")),
         result: redWon ? "win" : blueWon ? "loss" : "draw",

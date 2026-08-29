@@ -34,6 +34,16 @@ interface Props {
   warning?: string;
 }
 
+const TABLE_VIEW_OPTIONS: Array<{
+  value: BoxingTableView;
+  label: string;
+}> = [
+  { value: "events", label: "興行一覧" },
+  { value: "bouts", label: "全試合一覧" },
+  { value: "world", label: "世界戦一覧" },
+  { value: "fighter", label: "選手別結果・予定" },
+];
+
 function formatUpdatedAt(value?: string): string | undefined {
   if (!value) return undefined;
   return new Intl.DateTimeFormat("ja-JP", {
@@ -89,9 +99,33 @@ export default function BoxingDashboard({
       .slice(0, 12);
   }, [filters.query, fighterOptions]);
   const tableBouts = useMemo(
-    () => boutsForTable(filteredBouts, tableView, selectedFighter),
-    [filteredBouts, selectedFighter, tableView],
+    () =>
+      boutsForTable(
+        tableView === "fighter" ? allBouts : filteredBouts,
+        tableView,
+        selectedFighter,
+      ),
+    [allBouts, filteredBouts, selectedFighter, tableView],
   );
+
+  const changeTableView = (nextView: BoxingTableView) => {
+    setTableView(nextView);
+    setViewMode("table");
+  };
+
+  const changeSelectedFighter = (value: string) => {
+    setSelectedFighter(value);
+
+    const normalizedValue = normalizeFighterName(value);
+    const exactMatch = fighterOptions.find(
+      (fighter) => normalizeFighterName(fighter) === normalizedValue,
+    );
+    if (!exactMatch) return;
+
+    setSelectedFighter(exactMatch);
+    setTableView("fighter");
+    setViewMode("table");
+  };
 
   const stats: Stat[] = useMemo(() => {
     const upcomingEvents = filtered.filter(isEventUpcoming).length;
@@ -188,35 +222,42 @@ export default function BoxingDashboard({
         }
         unit={viewMode === "table" && tableView !== "events" ? "試合" : "興行"}
       >
+        <label className="flex min-w-0 items-center gap-1.5 text-[10px] text-gray-500">
+          <span className="shrink-0 font-semibold text-gray-400">
+            選手別結果・予定
+          </span>
+          <EntityPicker
+            id="boxing-fighter-options"
+            value={selectedFighter}
+            onChange={changeSelectedFighter}
+            options={fighterOptions}
+            placeholder="選手名を入力・選択…"
+            ariaLabel="選手別の試合結果と予定を表示"
+            accentClassName="focus:border-red-400/60"
+          />
+        </label>
         {viewMode === "table" && (
-          <>
-            <label className="flex items-center gap-1.5 text-[10px] text-gray-500">
-              <span className="hidden sm:inline">一覧の種類</span>
-              <select
-                value={tableView}
-                onChange={(event) =>
-                  setTableView(event.target.value as BoxingTableView)
-                }
-                className="h-7 rounded-md border border-white/10 bg-[#101018] px-2 text-[11px] text-gray-300 outline-none focus:border-red-400/50"
+          <div
+            className="flex flex-wrap items-center gap-1"
+            role="group"
+            aria-label="一覧の種類"
+          >
+            {TABLE_VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => changeTableView(option.value)}
+                aria-pressed={tableView === option.value}
+                className={`h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors ${
+                  tableView === option.value
+                    ? "border-red-400/40 bg-red-400/10 text-red-100"
+                    : "border-white/10 bg-[#101018] text-gray-500 hover:border-white/20 hover:text-gray-200"
+                }`}
               >
-                <option value="events">興行一覧</option>
-                <option value="bouts">全試合一覧</option>
-                <option value="world">世界戦一覧</option>
-                <option value="fighter">選手別結果・予定</option>
-              </select>
-            </label>
-            {tableView === "fighter" && (
-              <EntityPicker
-                id="boxing-fighter-options"
-                value={selectedFighter}
-                onChange={setSelectedFighter}
-                options={fighterOptions}
-                placeholder="選手名を入力…"
-                ariaLabel="選手を選択"
-                accentClassName="focus:border-red-400/60"
-              />
-            )}
-          </>
+                {option.label}
+              </button>
+            ))}
+          </div>
         )}
       </DataViewToolbar>
 
@@ -228,7 +269,7 @@ export default function BoxingDashboard({
               key={fighter}
               type="button"
               onClick={() => {
-                setSelectedFighter(fighter);
+                changeSelectedFighter(fighter);
                 setFilters((current) => ({ ...current, query: "" }));
               }}
               className="rounded-md border border-red-400/30 bg-red-400/10 px-2 py-1 text-[11px] text-red-200 hover:border-red-300/60 hover:text-white"
@@ -239,7 +280,8 @@ export default function BoxingDashboard({
         </section>
       )}
 
-      {filtered.length === 0 ? (
+      {filtered.length === 0 &&
+      !(viewMode === "table" && tableView === "fighter") ? (
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-10 text-center text-gray-400">
           <CalendarClock className="h-6 w-6 text-gray-600" />
           <p>条件に一致する興行がありません。</p>
@@ -258,7 +300,7 @@ export default function BoxingDashboard({
         <>
           {tableView === "fighter" && selectedFighter && (
             <div className="rounded-md border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-100/80">
-              {selectedFighter}の過去の試合結果と今後の試合予定を同じ表に表示しています。
+              {selectedFighter}の過去の試合結果と今後の試合予定を同じ表に表示しています。上の興行フィルタはこの一覧には適用されません。
             </div>
           )}
           <BoxingDataTable
@@ -266,6 +308,7 @@ export default function BoxingDashboard({
             events={filtered}
             bouts={tableBouts}
             selectedFighter={selectedFighter}
+            onSelectFighter={changeSelectedFighter}
           />
         </>
       ) : (

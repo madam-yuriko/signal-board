@@ -18,8 +18,6 @@ const JBC_FINISHED_CATEGORY = 6;
 const REVALIDATE_SECONDS = 60 * 60 * 24;
 const LIVE_FEED_TIMEOUT_MS = 20_000;
 const ENRICHED_FEED_TIMEOUT_MS = 30_000;
-const JBC_RESULT_WAIT_MS = 4_000;
-const MAX_JBC_RESULT_EVENTS = 24;
 const MAX_HISTORY_CARD_DATES = 64;
 const PRIORITY_CARD_SERIES = new Set([
   "Lemino Boxing",
@@ -116,6 +114,30 @@ function tableValue(html: string, label: string): string | undefined {
   return match ? plainText(match[1]) : undefined;
 }
 
+function jbcResultPdfUrl(post: JbcPost): string | undefined {
+  const hrefs = [...post.content.rendered.matchAll(/href\s*=\s*(["'])(.*?)\1/gi)]
+    .map((match) => decodeHtml(match[2]).trim())
+    .filter((href) => /\.pdf(?:$|[?#])/i.test(href))
+    .map((href) => {
+      try {
+        return new URL(href, post.link).toString();
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((href): href is string => Boolean(href));
+  const preferred = hrefs.find((href) =>
+    /(?:kekka|result|report|match[_-]?report|試合結果)/i.test(href),
+  );
+  if (preferred) return preferred;
+  if (hrefs[0]) return hrefs[0];
+
+  const metaLink = post.meta?.["vk-ltc-link"];
+  return typeof metaLink === "string" && /\.pdf(?:$|[?#])/i.test(metaLink)
+    ? metaLink
+    : undefined;
+}
+
 function cityForVenue(venue: string): string {
   const places: Array<[RegExp, string]> = [
     [/後楽園ホール|東京ドーム|両国国技館|有明アリーナ/, "東京"],
@@ -159,11 +181,9 @@ function parsePost(
   const venue = tableValue(post.content.rendered, "場所") ?? titleVenue.trim();
   const promoter = tableValue(post.content.rendered, "プロモーター");
   const historicalSeries = seriesForPromoter(promoter);
-  const detailsUrl =
-    typeof post.meta?.["vk-ltc-link"] === "string" &&
-    post.meta["vk-ltc-link"].startsWith("https://")
-      ? post.meta["vk-ltc-link"]
-      : undefined;
+  // 古いJBC結果記事にはPDFへのリンクが本文にあるものと、記事URL自体が
+  // PDFへリダイレクトするものが混在する。終了済み記事は後者も結果URLとして保持する。
+  const detailsUrl = jbcResultPdfUrl(post) ?? (status === "finished" ? post.link : undefined);
 
   return {
     id: `jbc-${post.id}`,
@@ -219,7 +239,7 @@ async function fetchJbcPage(
 
   const response = await fetch(`${JBC_API}?${params}`, {
     headers: { Accept: "application/json" },
-    next: { revalidate: REVALIDATE_SECONDS },
+    cache: "no-store",
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) {
@@ -343,7 +363,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v41-fail-on-incomplete-schedule-cards"],
+  ["signal-board-boxing-feed-v46-contract-weight-normalization"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -608,6 +628,7 @@ function mergeKnownEvents(
       ...curated,
       id: jbcEvent.id,
       sourceName: `${curated.sourceName} / JBC`,
+      sourceUrl: jbcEvent.sourceUrl,
       detailsUrl: jbcEvent.detailsUrl,
       sourceUpdatedAt: jbcEvent.sourceUpdatedAt,
       bouts: mergeEventBouts(jbcEvent.bouts, curated.bouts),
@@ -627,17 +648,18 @@ async function enrichEventsWithResults(
   events: BoxingEvent[],
 ): Promise<BoxingEvent[]> {
   const baseEvents = mergeStoredBouts(events);
-  const [withJbcResults, cardSets] = await Promise.all([
-    Promise.race([
-      enrichEventsWithJbcResults(baseEvents),
-      new Promise<BoxingEvent[]>((resolve) => {
-        setTimeout(() => resolve(baseEvents), JBC_RESULT_WAIT_MS);
-      }),
-    ]),
-    loadBoxmobCardSets(baseEvents),
-  ]);
-
-  return mergeBoxmobCards(withJbcResults, cardSets);
+  const resultUrls = new Map(
+    baseEvents.flatMap((event) =>
+      event.status === "finished" &&
+      event.sourceName?.toLowerCase().includes("jbc") &&
+      event.detailsUrl
+        ? [[event.id, event.detailsUrl] as const]
+        : [],
+    ),
+  );
+  const cardSets = await loadBoxmobCardSets(baseEvents);
+  const withCards = mergeBoxmobCards(baseEvents, cardSets);
+  return enrichEventsWithJbcResults(withCards, resultUrls);
 }
 
 function mergeBoxmobCards(
@@ -646,14 +668,16 @@ function mergeBoxmobCards(
 ): BoxingEvent[] {
   if (cardSets.length === 0) return events;
 
-  return events.map((event) => {
+  const assignments = assignCardSets(events, cardSets);
+
+  return events.map((event, index) => {
     if (
       event.status !== "finished" ||
       event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html")
     ) {
       return event;
     }
-    const cardSet = selectCardSet(event, cardSets);
+    const cardSet = assignments.get(index);
     if (!cardSet) return event;
     const supplementalBouts = [
       ...storedBoutsForEvent(event),
@@ -690,6 +714,7 @@ function mergeBoxmobCards(
 
 async function enrichEventsWithJbcResults(
   events: BoxingEvent[],
+  resultUrls: Map<string, string>,
 ): Promise<BoxingEvent[]> {
   const enriched = events.map((event) => ({ ...event }));
   const targets = enriched
@@ -697,10 +722,10 @@ async function enrichEventsWithJbcResults(
     .filter(
       ({ event }) =>
         event.status === "finished" &&
-        Boolean(event.detailsUrl?.toLowerCase().includes(".pdf")),
+        event.bouts.length > 0 &&
+        resultUrls.has(event.id),
     )
-    .sort((left, right) => right.event.date.localeCompare(left.event.date))
-    .slice(0, MAX_JBC_RESULT_EVENTS);
+    .sort((left, right) => right.event.date.localeCompare(left.event.date));
   let cursor = 0;
 
   await Promise.all(
@@ -710,7 +735,7 @@ async function enrichEventsWithJbcResults(
         cursor += 1;
         try {
           const bouts = await parseJbcResultPdf(
-            target.event.detailsUrl!,
+            resultUrls.get(target.event.id)!,
             target.event.id,
           );
           if (bouts.length > 0) {
@@ -843,7 +868,14 @@ function normalizeFighterName(value: string): string {
 function sameFighter(left: string, right: string): boolean {
   const a = normalizeFighterName(left);
   const b = normalizeFighterName(right);
-  return a === b || (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a)));
+  if (a === b || (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a)))) {
+    return true;
+  }
+  // 海外選手は媒体によってミドルネームが省略されることがある。
+  // 先頭と末尾が十分一致する場合だけ、同一人物として扱う。
+  return a.length >= 7 && b.length >= 7 &&
+    a.slice(0, 3) === b.slice(0, 3) &&
+    a.slice(-4) === b.slice(-4);
 }
 
 function samePair(left: { jpFighter: string; opponent: string }, right: { jpFighter: string; opponent: string }): boolean {
@@ -892,41 +924,96 @@ function seriesHint(value: string): string {
   return "";
 }
 
-function selectCardSet(event: BoxingEvent, cardSets: BoxmobCardSet[]): BoxmobCardSet | undefined {
-  if (event.boxmobSid) {
-    const explicit = cardSets.find((cardSet) => cardSet.sid === event.boxmobSid);
-    if (explicit) return explicit;
-  }
-  const sameDate = cardSets.filter((cardSet) => cardSet.date === event.date);
-  if (sameDate.length === 0) return undefined;
-  if (sameDate.length === 1) return sameDate[0];
-
+function cardSetMatchScore(event: BoxingEvent, cardSet: BoxmobCardSet): number {
+  if (event.date !== cardSet.date) return Number.NEGATIVE_INFINITY;
+  if (event.boxmobSid === cardSet.sid) return 10_000;
   const eventHint = seriesHint(`${event.name} ${event.series ?? ""}`);
-  const scored = sameDate.map((cardSet) => {
-    let score = 0;
-    const cardHint = seriesHint(cardSet.name);
-    if (eventHint && eventHint === cardHint) score += 4;
-    if (eventHint === "3150" && /弁慶|benkei/i.test(cardSet.name)) score += 3;
-    for (const resultBout of event.bouts) {
-      if (cardSet.bouts.some((cardBout) => samePair(resultBout, cardBout))) score += 10;
-    }
-    const eventTokens = event.name.normalize("NFKC").toLowerCase().split(/\s+/).filter((token) => token.length >= 3);
-    score += eventTokens.filter((token) => cardSet.name.normalize("NFKC").toLowerCase().includes(token)).length;
-    return { cardSet, score };
-  });
-  scored.sort((left, right) => right.score - left.score);
-  const best = scored[0];
-  const runnerUp = scored[1];
-  if (!best || best.score <= 0 || (runnerUp && runnerUp.score === best.score)) {
-    console.warn(`Ambiguous Boxing Mobile card match for ${event.date} ${event.name}`);
-    return undefined;
+  const cardHint = seriesHint(cardSet.name);
+  let score = 0;
+  if (eventHint && eventHint === cardHint) score += 40;
+  if (eventHint && cardHint && eventHint !== cardHint) score -= 100;
+  if (eventHint === "3150" && /弁慶|benkei/i.test(cardSet.name)) score += 30;
+  for (const resultBout of event.bouts) {
+    if (cardSet.bouts.some((cardBout) => samePair(resultBout, cardBout))) score += 100;
   }
-  return best.cardSet;
+  const normalizedCardName = cardSet.name.normalize("NFKC").toLowerCase();
+  const eventTokens = event.name
+    .normalize("NFKC")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+  score += eventTokens.filter((token) => normalizedCardName.includes(token)).length * 2;
+  if (event.nameStatus === "official") score += 10;
+  if (isGenericEventName(event)) score -= 5;
+  return score;
+}
+
+function assignCardSets(
+  events: BoxingEvent[],
+  cardSets: BoxmobCardSet[],
+): Map<number, BoxmobCardSet> {
+  const eligible = events
+    .map((event, index) => ({ event, index }))
+    .filter(
+      ({ event }) =>
+        event.status === "finished" &&
+        !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html"),
+    );
+  const eventCountByDate = new Map<string, number>();
+  const cardCountByDate = new Map<string, number>();
+  for (const { event } of eligible) {
+    eventCountByDate.set(event.date, (eventCountByDate.get(event.date) ?? 0) + 1);
+  }
+  for (const cardSet of cardSets) {
+    cardCountByDate.set(cardSet.date, (cardCountByDate.get(cardSet.date) ?? 0) + 1);
+  }
+
+  const proposals = eligible.flatMap(({ event, index }) =>
+    cardSets
+      .filter((cardSet) => cardSet.date === event.date)
+      .map((cardSet) => {
+        const onlyEventAndCard =
+          eventCountByDate.get(event.date) === 1 &&
+          cardCountByDate.get(event.date) === 1;
+        return {
+          eventIndex: index,
+          cardSet,
+          score: cardSetMatchScore(event, cardSet) + (onlyEventAndCard ? 1 : 0),
+        };
+      }),
+  ).sort((left, right) => right.score - left.score);
+
+  const assignments = new Map<number, BoxmobCardSet>();
+  const usedCardSids = new Set<string>();
+  for (const proposal of proposals) {
+    if (proposal.score <= 0) continue;
+    if (assignments.has(proposal.eventIndex) || usedCardSids.has(proposal.cardSet.sid)) {
+      continue;
+    }
+    assignments.set(proposal.eventIndex, proposal.cardSet);
+    usedCardSids.add(proposal.cardSet.sid);
+  }
+  return assignments;
 }
 
 function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bouts"]): BoxingEvent["bouts"] {
-  return cards.map((card) => {
-    const result = results.find((candidate) => samePair(card, candidate));
+  const positionalResults = new Map<number, BoxingEvent["bouts"][number]>();
+  for (const result of results) {
+    if (
+      !result.jpFighter.startsWith("__jbc_red_") ||
+      !result.opponent.startsWith("__jbc_blue_")
+    ) continue;
+    const boutNumber = Number(result.id.match(/-b(\d+)$/)?.[1]);
+    if (Number.isInteger(boutNumber) && boutNumber > 0) {
+      positionalResults.set(boutNumber, result);
+    }
+  }
+
+  return cards.map((card, index) => {
+    const namedResult = results.find((candidate) => samePair(card, candidate));
+    // Boxing Mobileはメインから、JBCは第1試合から並ぶため順序が逆。
+    const positionalResult = positionalResults.get(cards.length - index);
+    const result = namedResult ?? positionalResult;
     return result
       ? {
           ...card,
@@ -934,7 +1021,15 @@ function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bou
           jpFighterCountry: card.jpFighterCountry ?? result.jpFighterCountry,
           opponentCountry: card.opponentCountry ?? result.opponentCountry,
           opponentGym: card.opponentGym ?? result.opponentGym,
-          result: resultForPair(result, card),
+          weightClass:
+            card.weightClass === "契約階級" && result.weightClass !== "契約階級"
+              ? result.weightClass
+              : card.weightClass,
+          organizations:
+            card.organizations.length > 0
+              ? card.organizations
+              : result.organizations,
+          result: namedResult ? resultForPair(result, card) : result.result,
           method: result.method,
         }
       : card;

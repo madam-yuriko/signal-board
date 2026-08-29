@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { BoxingFeedError, getBoxingFeed } from "@/lib/boxingFeed";
 
-export const revalidate = 86400;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
   try {
     const feed = await getBoxingFeed();
     return NextResponse.json(feed, {
       headers: {
-        "Cache-Control": "private, max-age=86400",
+        // 更新頻度はboxingFeedの1日キャッシュで管理する。API応答をさらに
+        // 24時間キャッシュすると、最新カードの反映がもう1日遅れる。
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (error) {

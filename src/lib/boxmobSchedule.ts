@@ -65,13 +65,16 @@ function plainText(value: string): string {
 async function fetchShiftJis(
   url: string,
   timeoutMs = 12_000,
+  fresh = false,
 ): Promise<string> {
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "User-Agent": "SignalBoard/1.0 (+public boxing schedule reader)",
     },
-    next: { revalidate: REVALIDATE_SECONDS },
+    ...(fresh
+      ? { cache: "no-store" as const }
+      : { next: { revalidate: REVALIDATE_SECONDS } }),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
@@ -130,14 +133,21 @@ function parseFlashList(html: string, year: number, month: number): ScheduleEntr
 
 function normalizeWeightClass(headline: string): string {
   const text = plainText(headline)
+    .normalize("NFKC")
+    .replace(/(\d),(?=\d)/g, "$1.")
     .replace(/ライトミニマム/g, "ミニマム")
     .replace(/スーパー/g, "S")
     .replace(/ライトフライ/g, "Lフライ")
     .replace(/ライトヘビー/g, "Lヘビー");
   const weight = text.match(
-    /(?:ミニマム|Lフライ|フライ|Sフライ|バンタム|Sバンタム|フェザー|Sフェザー|ライト|Sライト|ウェルター|Sウェルター|ミドル|Sミドル|Lヘビー|クルーザー|ヘビー)級|\d+(?:\.\d+)?\s*(?:kg|ポンド)契約/i,
+    /(?:ミニマム|Lフライ|フライ|Sフライ|バンタム|Sバンタム|フェザー|Sフェザー|ライト|Sライト|ウェルター|Sウェルター|ミドル|Sミドル|Lヘビー|クルーザー|ヘビー)級|\d+(?:\.\d+)?\s*(?:kg|ポンド|P|lbs?)契約/i,
   )?.[0];
   if (!weight) return "契約階級";
+  const pounds = weight.match(/(\d+(?:\.\d+)?)\s*(?:P|lbs?|ポンド)契約/i);
+  if (pounds) {
+    const kilograms = Math.round(Number(pounds[1]) * 0.45359237 * 10) / 10;
+    return `${kilograms.toFixed(1)}kg契約`;
+  }
   return weight
     .replace(/^S(?=[^\d])/i, "スーパー")
     .replace(/^Lフライ/i, "ライトフライ")
@@ -277,7 +287,7 @@ async function loadEvent(
   // 興行が正常データとして1日キャッシュされ、カードだけ消えた状態になる。
   // カード未発表の正常系は、取得成功後に parseBouts が空配列を返す場合だけ。
   bouts = parseBouts(
-    await fetchShiftJis(detailsUrl, detailTimeoutMs),
+    await fetchShiftJis(detailsUrl, detailTimeoutMs, true),
     `boxmob-${entry.sid}`,
   );
   const year = eventYear(entry.month, entry.day, now);
@@ -397,7 +407,7 @@ export async function fetchBoxmobHistoryCards(
 export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
   const now = new Date();
   const entries = parseScheduleList(
-    await fetchShiftJis(SCHEDULE_URL, SCHEDULE_LIST_TIMEOUT_MS),
+    await fetchShiftJis(SCHEDULE_URL, SCHEDULE_LIST_TIMEOUT_MS, true),
   );
   if (entries.length === 0) {
     throw new Error("Boxing Mobile returned no scheduled events");

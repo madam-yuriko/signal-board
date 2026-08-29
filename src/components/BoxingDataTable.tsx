@@ -5,9 +5,14 @@ import type { BoutWithEvent } from "@/lib/filters";
 import { formatShortDate, isEventUpcoming } from "@/lib/format";
 import DataTable, { type DataTableColumn } from "@/components/DataTable";
 import OrgBadge from "@/components/OrgBadge";
-import { fighterAnnotation, sameFighterName } from "@/lib/fighterInfo";
+import {
+  fighterAnnotation,
+  normalizeFighterName,
+  sameFighterName,
+} from "@/lib/fighterInfo";
 
 export type BoxingTableView = "events" | "bouts" | "world" | "fighter";
+type TableBoutResult = BoutResult | "unknown";
 
 export function availableFighters(bouts: BoutWithEvent[]): string[] {
   const names = new Map<string, string>();
@@ -45,11 +50,27 @@ export function boutsForTable(
     return bouts.filter(isWorldTitleBout);
   }
   if (view === "fighter") {
-      return fighter
-      ? bouts.filter(
+    if (!fighter) return [];
+    const matched = bouts.filter(
           (bout) => sameFighterName(bout.jpFighter, fighter) || sameFighterName(bout.opponent, fighter),
-        )
-      : [];
+        );
+    const unique = new Map<string, BoutWithEvent>();
+    for (const bout of matched) {
+      const pair = [
+        normalizeFighterName(bout.jpFighter),
+        normalizeFighterName(bout.opponent),
+      ].sort().join(":");
+      const key = `${bout.event.date}:${pair}`;
+      const existing = unique.get(key);
+      if (
+        !existing ||
+        (existing.result === "scheduled" && bout.result !== "scheduled") ||
+        (!existing.method && Boolean(bout.method))
+      ) {
+        unique.set(key, bout);
+      }
+    }
+    return [...unique.values()];
   }
   return bouts;
 }
@@ -67,22 +88,31 @@ function resultForFighter(bout: BoutWithEvent, fighter: string): BoutResult {
   return bout.result === "win" ? "loss" : "win";
 }
 
-function resultBadge(result: BoutResult) {
-  const styles: Record<BoutResult, string> = {
+function tableResult(bout: BoutWithEvent, fighter?: string): TableBoutResult {
+  const result = fighter ? resultForFighter(bout, fighter) : bout.result;
+  return result === "scheduled" && !isEventUpcoming(bout.event)
+    ? "unknown"
+    : result;
+}
+
+function resultBadge(result: TableBoutResult) {
+  const styles: Record<TableBoutResult, string> = {
     win: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
     loss: "border-rose-400/30 bg-rose-400/10 text-rose-300",
     draw: "border-slate-400/30 bg-slate-400/10 text-slate-300",
     scheduled: "border-amber-400/30 bg-amber-400/10 text-amber-300",
     "no-contest": "border-slate-400/30 bg-slate-400/10 text-slate-300",
     cancelled: "border-rose-400/30 bg-rose-400/10 text-rose-300",
+    unknown: "border-slate-400/20 bg-slate-400/5 text-slate-400",
   };
-  const labels: Record<BoutResult, string> = {
+  const labels: Record<TableBoutResult, string> = {
     win: "勝",
     loss: "敗",
     draw: "引分",
     scheduled: "予定",
     "no-contest": "無効",
     cancelled: "中止",
+    unknown: "結果未取得",
   };
   return (
     <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-bold ${styles[result]}`}>
@@ -176,6 +206,7 @@ function eventColumns(): DataTableColumn<BoxingEvent>[] {
 function boutColumns(
   view: BoxingTableView,
   selectedFighter: string,
+  onSelectFighter: (fighter: string) => void,
 ): DataTableColumn<BoutWithEvent>[] {
   const fighterView = view === "fighter";
   return [
@@ -191,16 +222,28 @@ function boutColumns(
       ? {
           id: "opponent",
           label: "対戦相手",
-          render: (bout) =>
-            sameFighterName(bout.jpFighter, selectedFighter)
-              ? fighterLabel(bout.opponent, {
-                  country: bout.opponentCountry,
-                  gym: bout.opponentGym,
-                })
-              : fighterLabel(bout.jpFighter, {
-                  country: bout.jpFighterCountry,
-                  gym: bout.jpFighterGym,
-                }),
+          render: (bout) => {
+            const selectedIsJapaneseSide = sameFighterName(
+              bout.jpFighter,
+              selectedFighter,
+            );
+            const opponent = selectedIsJapaneseSide
+              ? bout.opponent
+              : bout.jpFighter;
+            const info = selectedIsJapaneseSide
+              ? { country: bout.opponentCountry, gym: bout.opponentGym }
+              : { country: bout.jpFighterCountry, gym: bout.jpFighterGym };
+            return (
+              <button
+                type="button"
+                onClick={() => onSelectFighter(opponent)}
+                className="text-left font-semibold text-white underline decoration-white/20 underline-offset-2 transition-colors hover:text-red-200 hover:decoration-red-300/60"
+                aria-label={`${opponent}の選手別結果を表示`}
+              >
+                {fighterLabel(opponent, info)}
+              </button>
+            );
+          },
           sortValue: (bout) =>
             sameFighterName(bout.jpFighter, selectedFighter) ? bout.opponent : bout.jpFighter,
           className: "min-w-32 font-semibold text-white",
@@ -233,10 +276,10 @@ function boutColumns(
       label: fighterView ? "結果・予定" : "結果（日本側）",
       render: (bout) =>
         resultBadge(
-          fighterView ? resultForFighter(bout, selectedFighter) : bout.result,
+          tableResult(bout, fighterView ? selectedFighter : undefined),
         ),
       sortValue: (bout) =>
-        fighterView ? resultForFighter(bout, selectedFighter) : bout.result,
+        tableResult(bout, fighterView ? selectedFighter : undefined),
       align: "center",
     },
     {
@@ -265,7 +308,13 @@ function boutColumns(
     {
       id: "method",
       label: "決着",
-      render: (bout) => bout.method ?? (bout.result === "scheduled" ? "—" : "記録なし"),
+      render: (bout) =>
+        bout.method ??
+        (tableResult(bout, fighterView ? selectedFighter : undefined) === "unknown"
+          ? "結果未取得"
+          : bout.result === "scheduled"
+            ? "—"
+            : "記録なし"),
       sortValue: (bout) => bout.method,
       hideOnMobile: true,
       className: "whitespace-nowrap",
@@ -301,11 +350,13 @@ export default function BoxingDataTable({
   events,
   bouts,
   selectedFighter,
+  onSelectFighter,
 }: {
   view: BoxingTableView;
   events: BoxingEvent[];
   bouts: BoutWithEvent[];
   selectedFighter: string;
+  onSelectFighter: (fighter: string) => void;
 }) {
   if (view === "events") {
     return (
@@ -323,7 +374,7 @@ export default function BoxingDataTable({
     <DataTable
       key={`boxing-${view}-${selectedFighter}`}
       rows={bouts}
-      columns={boutColumns(view, selectedFighter)}
+      columns={boutColumns(view, selectedFighter, onSelectFighter)}
       rowKey={(bout) => `${bout.event.id}-${bout.id}`}
       defaultSort={{ columnId: "date", direction: "desc" }}
       emptyMessage={

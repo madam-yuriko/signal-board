@@ -34,9 +34,16 @@ async function requestFeed(): Promise<BoxingFeed> {
               : "ボクシングデータを取得できませんでした。",
           );
         }
+        const sourceUpdatedAt = body.updatedAt
+          ? new Date(body.updatedAt).getTime()
+          : Number.NaN;
         cachedFeed = {
           feed: body,
-          expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
+          // APIを受け取った時点から24時間延長せず、サーバー側の更新時刻を
+          // 基準にする。これにより画面キャッシュが古さを上乗せしない。
+          expiresAt: Number.isFinite(sourceUpdatedAt)
+            ? sourceUpdatedAt + CLIENT_CACHE_TTL_MS
+            : Date.now() + CLIENT_CACHE_TTL_MS,
         };
         return body;
       })
