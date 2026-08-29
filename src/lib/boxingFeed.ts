@@ -366,7 +366,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v48-title-scopes"],
+  ["signal-board-boxing-feed-v49-undecided-opponent"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],

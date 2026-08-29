@@ -161,6 +161,14 @@ interface BoxerProfile {
   affiliation?: string;
 }
 
+function normalizeBoxerName(value: string): string {
+  const name = value.normalize("NFKC").replace(/\s+/g, " ").trim();
+  // 未定選手の欄に表示される投票ボタンの文言を、選手名として保存しない。
+  return /勝ち予想投票\s*[・･]\s*変更をする|勝ち予想投票・変更をする/i.test(name)
+    ? "未定"
+    : name;
+}
+
 function boxerProfiles(section: string): BoxerProfile[] {
   const matches = [...section.matchAll(
     /bmsm_boookies__item-big__boxer-profile-name[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/gi,
@@ -172,14 +180,14 @@ function boxerProfiles(section: string): BoxerProfile[] {
       const profileText = plainText(section.slice(start, end)).normalize("NFKC");
       const affiliation = profileText.match(/\(\s*\d+\s*=\s*([^()]+?)\s*\)/)?.[1];
       return {
-        name: plainText(match[1]),
+        name: normalizeBoxerName(plainText(match[1])),
         affiliation: affiliation?.trim(),
       };
     });
   }
 
   return [...section.matchAll(/<img class="boxer"[^>]*alt="([^"]+)"/gi)]
-    .map((match) => ({ name: plainText(match[1]) }))
+    .map((match) => ({ name: normalizeBoxerName(plainText(match[1])) }))
     .filter(Boolean)
     .slice(0, 2);
 }
