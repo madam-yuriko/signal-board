@@ -44,7 +44,9 @@ const MAJOR_SERIES = new Set([
 
 // 公式シリーズ情報と手入力済みの補完興行は、ライブ取得成功後に
 // ライブイベントへ統合する。ライブ取得に失敗した場合のフォールバックには使わない。
-const KNOWN_EVENTS = [...majorBoxingEvents, ...curatedEvents];
+// 手入力結果はカード・勝敗の補完に使い、興行名とシリーズは
+// 主催／配信元で確認した majorBoxingEvents を最後に重ねて正とする。
+const KNOWN_EVENTS = [...curatedEvents, ...majorBoxingEvents];
 
 interface JbcPost {
   id: number;
@@ -344,6 +346,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
       event.date >= recentCutoff ||
       MAJOR_SERIES.has(event.series ?? ""),
   );
+  assertNumberedSeriesIntegrity(uniqueEvents);
   const storedEvents = mergeStoredBouts(uniqueEvents);
   const unavailableSources: string[] = [];
   if (scheduledResult.status === "rejected") unavailableSources.push("JBC予定");
@@ -363,7 +366,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v46-contract-weight-normalization"],
+  ["signal-board-boxing-feed-v48-title-scopes"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -409,14 +412,10 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
     };
   } catch (error) {
     console.error("Unable to enrich JBC boxing feed", error);
-    return {
-      ...baseFeed,
-      warning: [
-        baseFeed.warning,
-        unresolvedEventNameWarning(baseFeed.events),
-        "対戦カード・試合結果の追加取得が時間内に完了しなかったため、取得できた興行情報のみ表示しています。",
-      ].filter(Boolean).join(" "),
-    };
+    throw new BoxingFeedError(
+      "対戦カード・試合結果の取得に失敗しました。不完全な保存済みデータは表示していません。時間を置いて再試行してください。",
+      { cause: error },
+    );
   }
 }
 function normalizeVenue(value: string): string {
@@ -526,6 +525,41 @@ function unresolvedEventNameWarning(events: BoxingEvent[]): string | undefined {
     .join("、");
   const suffix = unresolved.length > 5 ? `ほか${unresolved.length - 5}件` : "";
   return `正式な興行名を取得できていないため仮名称で表示している興行があります（${labels}${suffix}）。`;
+}
+
+function unextBoxingNumber(event: BoxingEvent): number | undefined {
+  if (event.series !== "U-NEXT Boxing") return undefined;
+  const match = event.name
+    .normalize("NFKC")
+    .match(/^U-NEXT\s*BOXING(?:[.\s]*(\d+))?(?:\b|\[|$)/i);
+  if (!match) return undefined;
+  return match[1] ? Number(match[1]) : 1;
+}
+
+function assertNumberedSeriesIntegrity(events: BoxingEvent[]): void {
+  const numbered = events
+    .flatMap((event) => {
+      const number = unextBoxingNumber(event);
+      return number ? [{ event, number }] : [];
+    })
+    .sort((left, right) => left.number - right.number);
+  const seen = new Set<number>();
+  for (let index = 0; index < numbered.length; index += 1) {
+    const current = numbered[index];
+    if (seen.has(current.number)) {
+      throw new Error(`U-NEXT BOXING ${current.number} が重複しています`);
+    }
+    seen.add(current.number);
+    if (current.number !== index + 1) {
+      throw new Error(`U-NEXT BOXING の連番が欠けています: ${current.number}`);
+    }
+    const previous = numbered[index - 1];
+    if (previous && previous.event.date >= current.event.date) {
+      throw new Error(
+        `U-NEXT BOXING ${previous.number} と ${current.number} の開催日順が逆転しています`,
+      );
+    }
+  }
 }
 
 function sameEventSlot(left: BoxingEvent, right: BoxingEvent): boolean {
@@ -666,9 +700,8 @@ function mergeBoxmobCards(
   events: BoxingEvent[],
   cardSets: BoxmobCardSet[],
 ): BoxingEvent[] {
-  if (cardSets.length === 0) return events;
-
   const assignments = assignCardSets(events, cardSets);
+  assertExactCardAssignments(events, assignments);
 
   return events.map((event, index) => {
     if (
@@ -709,6 +742,27 @@ function mergeBoxmobCards(
       sourceUpdatedAt: event.sourceUpdatedAt,
       bouts,
     };
+  });
+}
+
+function assertExactCardAssignments(
+  events: BoxingEvent[],
+  assignments: Map<number, BoxmobCardSet>,
+): void {
+  events.forEach((event, index) => {
+    if (
+      event.status !== "finished" ||
+      event.series !== "U-NEXT Boxing" ||
+      !event.boxmobSid
+    ) {
+      return;
+    }
+    const assigned = assignments.get(index);
+    if (assigned?.sid !== event.boxmobSid || assigned.bouts.length === 0) {
+      throw new Error(
+        `${event.name} の対戦カード（BoxMob SID ${event.boxmobSid}）を取得できませんでした`,
+      );
+    }
   });
 }
 
@@ -776,6 +830,15 @@ async function loadBoxmobCardSets(
       .sort((left, right) => right.date.localeCompare(left.date))
       .map((event) => event.date),
   )];
+  // BoxMob SIDを公式カタログ側で固定した興行は、件数上限より先に必ず取得する。
+  // これを通常の「直近／主要シリーズ」枠へ混ぜると、主要興行が増えた時に
+  // 古いU-NEXT BOXINGが上限の外へ押し出され、保存済みの主要試合だけになる。
+  const exactCardDates = [...new Set(
+    boxmobTargets
+      .filter((event) => Boolean(event.boxmobSid))
+      .sort((left, right) => right.date.localeCompare(left.date))
+      .map((event) => event.date),
+  )];
   const otherPriorityDates = [...new Set(
     boxmobTargets
       .filter((event) => PRIORITY_CARD_SERIES.has(event.series ?? ""))
@@ -784,8 +847,11 @@ async function loadBoxmobCardSets(
       .map((event) => event.date),
   )];
   const priorityDates = [
+    ...exactCardDates,
     ...numbered3150Dates,
-    ...otherPriorityDates.filter((date) => !numbered3150Dates.includes(date)),
+    ...otherPriorityDates.filter(
+      (date) => !exactCardDates.includes(date) && !numbered3150Dates.includes(date),
+    ),
   ];
   const latestDates = [...new Set(
     boxmobTargets
@@ -1025,10 +1091,10 @@ function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bou
             card.weightClass === "契約階級" && result.weightClass !== "契約階級"
               ? result.weightClass
               : card.weightClass,
-          organizations:
-            card.organizations.length > 0
-              ? card.organizations
-              : result.organizations,
+          // 結果PDFの行にはランキング等の団体名が混ざるため、タイトル情報は
+          // 公式対戦カードの見出しだけを正とする。
+          organizations: card.organizations,
+          titles: card.titles,
           result: namedResult ? resultForPair(result, card) : result.result,
           method: result.method,
         }

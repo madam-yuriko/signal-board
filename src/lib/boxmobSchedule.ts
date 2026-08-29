@@ -3,6 +3,7 @@ import "server-only";
 import type { Bout, BoxingEvent } from "@/types";
 import { infoFromAffiliation } from "@/lib/fighterInfo";
 import { organizationsFromText } from "@/lib/organizations";
+import { boutTitlesFromText } from "@/lib/boutTitles";
 
 const SCHEDULE_URL = "https://boxmob.jp/sp/schedule.html";
 const DETAIL_URL = "https://boxmob.jp/sp/schedule/index.html";
@@ -196,6 +197,7 @@ function parseBouts(html: string, eventId: string): Bout[] {
     const headline = plainText(headlineMatch[1]);
     const jpInfo = infoFromAffiliation(profiles[0].affiliation);
     const opponentInfo = infoFromAffiliation(profiles[1].affiliation);
+    const organizations = organizationsFromText(headline);
     return [{
       id: `${eventId}-b${index + 1}`,
       jpFighter: profiles[0].name,
@@ -205,7 +207,8 @@ function parseBouts(html: string, eventId: string): Bout[] {
       opponentCountry: opponentInfo.country,
       opponentGym: opponentInfo.gym,
       weightClass: normalizeWeightClass(headline),
-      organizations: organizationsFromText(headline),
+      organizations,
+      titles: boutTitlesFromText(headline, organizations),
       result: "scheduled" as const,
       isMainEvent: index === 0,
       notes: headline,

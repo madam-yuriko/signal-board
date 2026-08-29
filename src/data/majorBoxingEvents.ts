@@ -86,12 +86,12 @@ export const majorBoxingEvents: MajorEvent[] = [
   event("dynamic-glove-46", "2026-08-01", "DYNAMIC GLOVE on U-NEXT 46[日本][OPBF]", "Dynamic Glove", "後楽園ホール", "東京", "U-NEXT", DYNAMIC_GLOVE_HISTORY),
 
   // U-NEXT BOXING（番号シリーズ）
-  event("unext-01", "2024-12-15", "U-NEXT BOXING", "U-NEXT Boxing", "住吉スポーツセンター", "大阪", "U-NEXT", UNEXT_HISTORY),
-  event("unext-02", "2025-03-13", "U-NEXT BOXING 2", "U-NEXT Boxing", "両国国技館", "東京", "U-NEXT", UNEXT_HISTORY),
-  event("unext-03", "2025-07-30", "U-NEXT BOXING.3", "U-NEXT Boxing", "横浜BUNTAI", "横浜", "U-NEXT", "https://www.unext.co.jp/ja/press-room/unext-boxing-live-2025-06-11"),
-  event("unext-04", "2025-12-17", "U-NEXT BOXING.4", "U-NEXT Boxing", "両国国技館", "東京", "U-NEXT", "https://www.unext.co.jp/en/press-room/2025-12-unext-lineups"),
-  event("unext-05", "2026-03-15", "U-NEXT BOXING.5", "U-NEXT Boxing", "横浜BUNTAI", "横浜", "U-NEXT", "https://www.unext.co.jp/en/press-room/2026-03-unext-lineups"),
-  event("unext-06", "2026-07-20", "U-NEXT BOXING.6", "U-NEXT Boxing", "両国国技館", "東京", "U-NEXT", "https://www.video.unext.jp/po2/unext_boxing"),
+  event("unext-01", "2024-12-15", "U-NEXT BOXING", "U-NEXT Boxing", "住吉スポーツセンター", "大阪", "U-NEXT", UNEXT_HISTORY, true, "7382"),
+  event("unext-02", "2025-03-13", "U-NEXT BOXING 2", "U-NEXT Boxing", "両国国技館", "東京", "U-NEXT", UNEXT_HISTORY, true, "7461"),
+  event("unext-03", "2025-07-30", "U-NEXT BOXING.3", "U-NEXT Boxing", "横浜BUNTAI", "横浜", "U-NEXT", "https://www.unext.co.jp/ja/press-room/unext-boxing-live-2025-06-11", true, "7651"),
+  event("unext-04", "2025-12-17", "U-NEXT BOXING.4", "U-NEXT Boxing", "両国国技館", "東京", "U-NEXT", "https://www.unext.co.jp/en/press-room/2025-12-unext-lineups", true, "7857"),
+  event("unext-05", "2026-03-15", "U-NEXT BOXING.5", "U-NEXT Boxing", "横浜BUNTAI", "横浜", "U-NEXT", "https://www.unext.co.jp/en/press-room/2026-03-unext-lineups", true, "7940"),
+  event("unext-06", "2026-07-20", "U-NEXT BOXING.6", "U-NEXT Boxing", "両国国技館", "東京", "U-NEXT", "https://www.video.unext.jp/po2/unext_boxing", true, "8119"),
 
   // TREASURE BOXING PROMOTION（公式イベントアーカイブ）
   event("treasure-01", "2022-12-03", "TREASURE BOXING PROMOTION 1", "Treasure-Boxing", "PARADISE CITY", "仁川", "TREASURE BOXING PROMOTION", TREASURE_HISTORY, false),

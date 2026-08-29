@@ -69,7 +69,7 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20260315-yokohama",
     date: "2026-03-15",
-    name: "U-NEXT BOXING.6",
+    name: "U-NEXT BOXING.5",
     series: "U-NEXT Boxing",
     venue: "横浜BUNTAI",
     city: "神奈川",
@@ -158,8 +158,8 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20251217-ryogoku",
     date: "2025-12-17",
-    name: "両国 世界戦トリプル",
-    series: "Lemino Boxing",
+    name: "U-NEXT BOXING.4",
+    series: "U-NEXT Boxing",
     venue: "両国国技館",
     city: "東京",
     domestic: true,
@@ -179,11 +179,12 @@ export const events: BoxingEvent[] = [
       {
         id: "b-20251217-2",
         jpFighter: "高見亨介",
-        opponent: "エリック・ロサ",
+        opponent: "レネ・サンティアゴ",
+        opponentCountry: "プエルトリコ",
         weightClass: "ライトフライ級",
         organizations: ["WBA"],
-        result: "win",
-        method: "TKO",
+        result: "loss",
+        method: "判定 1-2",
       },
       {
         id: "b-20251217-3",
@@ -222,8 +223,8 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20250914-igarena",
     date: "2025-09-14",
-    name: "U-NEXT BOXING.5",
-    series: "U-NEXT Boxing",
+    name: "Lemino BOXING トリプル世界タイトルマッチ",
+    series: "Lemino Boxing",
     venue: "IGアリーナ",
     city: "愛知",
     domestic: true,
@@ -264,8 +265,8 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20250730-yokohama",
     date: "2025-07-30",
-    name: "横浜BUNTAI 世界戦",
-    series: "Lemino Boxing",
+    name: "U-NEXT BOXING.3",
+    series: "U-NEXT Boxing",
     venue: "横浜BUNTAI",
     city: "神奈川",
     domestic: true,
@@ -472,8 +473,8 @@ export const events: BoxingEvent[] = [
   {
     id: "e-20250313-ryogoku",
     date: "2025-03-13",
-    name: "両国 世界戦トリプル",
-    series: "Lemino Boxing",
+    name: "U-NEXT BOXING 2",
+    series: "U-NEXT Boxing",
     venue: "両国国技館",
     city: "東京",
     domestic: true,

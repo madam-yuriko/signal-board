@@ -4,7 +4,8 @@ import type { BoutResult, BoxingEvent } from "@/types";
 import type { BoutWithEvent } from "@/lib/filters";
 import { formatShortDate, isEventUpcoming } from "@/lib/format";
 import DataTable, { type DataTableColumn } from "@/components/DataTable";
-import OrgBadge from "@/components/OrgBadge";
+import BoutTitleBadges from "@/components/BoutTitleBadges";
+import { isWorldTitle, titlesForBout } from "@/lib/boutTitles";
 import {
   fighterAnnotation,
   normalizeFighterName,
@@ -25,20 +26,7 @@ export function availableFighters(bouts: BoutWithEvent[]): string[] {
 }
 
 export function isWorldTitleBout(bout: BoutWithEvent): boolean {
-  if (bout.organizations.length === 0) return false;
-  const description = `${bout.notes ?? ""} ${bout.event.name}`;
-  const boutDescription = bout.notes ?? "";
-  if (
-    /WBO[-\s]?AP|OPBF|東洋太平洋|アジア|Asia(?:n)?|日本(?:王座|タイトル|ユース)|ユース/i.test(
-      boutDescription,
-    )
-  ) {
-    return false;
-  }
-  return (
-    /世界/.test(description) ||
-    /王者|王座|防衛|挑戦|統一/.test(boutDescription)
-  );
+  return isWorldTitle(bout);
 }
 
 export function boutsForTable(
@@ -285,17 +273,13 @@ function boutColumns(
     {
       id: "title",
       label: "タイトル",
-      render: (bout) =>
-        bout.organizations.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {bout.organizations.map((organization) => (
-              <OrgBadge key={organization} org={organization} />
-            ))}
-          </div>
-        ) : (
-          <span className="text-gray-600">—</span>
-        ),
-      sortValue: (bout) => bout.organizations.join(" "),
+      render: (bout) => (
+        <div className="flex flex-wrap gap-1">
+          <BoutTitleBadges bout={bout} />
+        </div>
+      ),
+      sortValue: (bout) =>
+        titlesForBout(bout).map((title) => title.kind).join(" "),
     },
     {
       id: "weight",

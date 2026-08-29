@@ -1,6 +1,6 @@
 import { Star } from "lucide-react";
 import type { Bout } from "@/types";
-import OrgBadge from "@/components/OrgBadge";
+import BoutTitleBadges from "@/components/BoutTitleBadges";
 import { fighterAnnotation } from "@/lib/fighterInfo";
 
 export default function BoutRow({ bout }: { bout: Bout }) {
@@ -26,9 +26,7 @@ export default function BoutRow({ bout }: { bout: Bout }) {
             </span>
           )}
           <span className="text-[11px] text-gray-400">{bout.weightClass}</span>
-          {bout.organizations.map((o) => (
-            <OrgBadge key={o} org={o} />
-          ))}
+          <BoutTitleBadges bout={bout} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">

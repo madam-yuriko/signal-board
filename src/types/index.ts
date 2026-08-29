@@ -3,6 +3,16 @@ export type Organization = "WBA" | "WBC" | "IBF" | "WBO";
 
 export const ORGANIZATIONS: Organization[] = ["WBA", "WBC", "IBF", "WBO"];
 
+/** その試合に懸かるタイトル。複数王座の同時開催にも対応する。 */
+export type BoutTitle =
+  | { kind: "world"; organization: Organization }
+  | { kind: "wbo-ap" }
+  | { kind: "opbf" }
+  | { kind: "japan" }
+  | { kind: "japan-youth" }
+  | { kind: "regional"; label: string }
+  | { kind: "non-title" };
+
 // 日本側選手から見た結果。scheduled = 試合予定、no-contest = 無効試合、cancelled = 中止
 export type BoutResult =
   | "win"
@@ -33,6 +43,8 @@ export interface Bout {
   weightClass: string;
   /** 懸かるタイトルの団体 */
   organizations: Organization[];
+  /** 世界・地域・国内を区別したタイトル区分 */
+  titles?: BoutTitle[];
   /** 日本側選手から見た結果 */
   result: BoutResult;
   /** 決着方法（例: "判定 3-0", "TKO 8R", "KO 2R"） */
