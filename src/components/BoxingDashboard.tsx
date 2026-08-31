@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, Database, Trophy } from "lucide-react";
 import type { BoxingEvent } from "@/types";
@@ -67,6 +67,7 @@ export default function BoxingDashboard({
   const [tableView, setTableView] = useState<BoxingTableView>("events");
   const [selectedFighter, setSelectedFighter] = useState("");
   const [checkedOnly, setCheckedOnly] = useState(false);
+  const cardScrollPosition = useRef<number | null>(null);
   const {
     checkedItems: checkedEvents,
     checkedCount: checkedEventCount,
@@ -113,7 +114,25 @@ export default function BoxingDashboard({
     setViewMode("table");
   };
 
+  const changeViewMode = (nextMode: DataViewMode) => {
+    if (nextMode === "cards" && cardScrollPosition.current !== null) {
+      const position = cardScrollPosition.current;
+      setViewMode(nextMode);
+      cardScrollPosition.current = null;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          window.scrollTo(0, position);
+        });
+      });
+      return;
+    }
+    setViewMode(nextMode);
+  };
+
   const changeSelectedFighter = (value: string) => {
+    if (viewMode === "cards" && cardScrollPosition.current === null) {
+      cardScrollPosition.current = window.scrollY;
+    }
     setSelectedFighter(value);
 
     const normalizedValue = normalizeFighterName(value);
@@ -125,6 +144,12 @@ export default function BoxingDashboard({
     setSelectedFighter(exactMatch);
     setTableView("fighter");
     setViewMode("table");
+    window.requestAnimationFrame(() => {
+      document.getElementById("boxing-data-view")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   };
 
   const stats: Stat[] = useMemo(() => {
@@ -213,8 +238,9 @@ export default function BoxingDashboard({
       />
 
       <DataViewToolbar
+        id="boxing-data-view"
         mode={viewMode}
-        onModeChange={setViewMode}
+        onModeChange={changeViewMode}
         count={
           viewMode === "cards" || tableView === "events"
             ? filtered.length
@@ -319,6 +345,7 @@ export default function BoxingDashboard({
                 event={event}
                 checked={isChecked(event)}
                 onToggleCheck={() => toggleCheckedEvent(event)}
+                onSelectFighter={changeSelectedFighter}
               />
             </div>
           ))}

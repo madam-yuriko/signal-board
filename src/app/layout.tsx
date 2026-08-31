@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "Signal Board | CPU・GPU・APU・再開発・映画・インディーゲーム・ボクシング・災害";
+const title = "Signal Board | 情報と趣味の管理ボード";
 const description =
-  "CPU・GPU・APU、再開発、映画、インディーゲーム、ボクシング、災害をまとめて確認できる情報ボード。";
+  "CPU・GPU・APU、再開発、映画、インディーゲーム、アクアリウム、ボクシング、災害をまとめて確認できる管理ボード。";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -63,7 +63,7 @@ export default function RootLayout({
           {children}
         </main>
         <footer className="border-t border-white/5 py-4 text-center text-[11px] text-gray-600">
-          Signal Board — ボクシング興行は公式シリーズ情報とJBC公開情報、その他は開発用データです。
+          Signal Board — アクアリウムはこの端末に保存した登録データ、ボクシング興行は公式シリーズ情報とJBC公開情報、その他は開発用データです。
         </footer>
       </body>
     </html>

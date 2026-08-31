@@ -10,10 +10,12 @@ export default function EventCard({
   event,
   checked,
   onToggleCheck,
+  onSelectFighter,
 }: {
   event: BoxingEvent;
   checked: boolean;
   onToggleCheck: () => void;
+  onSelectFighter?: (fighter: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const upcoming = isEventUpcoming(event);
@@ -99,7 +101,11 @@ export default function EventCard({
       <div className="p-3">
         <div className="space-y-1.5">
           {primaryBouts.map((bout) => (
-            <BoutRow key={bout.id} bout={bout} />
+            <BoutRow
+              key={bout.id}
+              bout={bout}
+              onSelectFighter={onSelectFighter}
+            />
           ))}
           {additionalBouts.length > 0 && (
             <div
@@ -109,7 +115,11 @@ export default function EventCard({
             >
               <div className="min-h-0 space-y-1.5">
                 {additionalBouts.map((bout) => (
-                  <BoutRow key={bout.id} bout={bout} />
+                  <BoutRow
+                    key={bout.id}
+                    bout={bout}
+                    onSelectFighter={onSelectFighter}
+                  />
                 ))}
               </div>
             </div>

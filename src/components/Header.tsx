@@ -7,6 +7,7 @@ import {
   Activity,
   Building2,
   Cpu,
+  Fish,
   Film,
   Gamepad2,
   LoaderCircle,
@@ -20,6 +21,7 @@ const NAV = [
   { href: "/redevelopment", label: "再開発", icon: Building2 },
   { href: "/movies", label: "映画", icon: Film },
   { href: "/indie-games", label: "インディーゲーム", icon: Gamepad2 },
+  { href: "/aquarium", label: "アクアリウム", icon: Fish },
   { href: "/boxing", label: "ボクシング", icon: Swords },
   { href: "/disasters", label: "災害", icon: TriangleAlert },
 ];

@@ -5,6 +5,7 @@ import { LayoutGrid, Table2 } from "lucide-react";
 export type DataViewMode = "cards" | "table";
 
 interface Props {
+  id?: string;
   mode: DataViewMode;
   onModeChange: (mode: DataViewMode) => void;
   count: number;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export default function DataViewToolbar({
+  id,
   mode,
   onModeChange,
   count,
@@ -20,7 +22,7 @@ export default function DataViewToolbar({
   children,
 }: Props) {
   return (
-    <section className="glass-card flex flex-col gap-2 rounded-lg p-2.5 sm:flex-row sm:items-center sm:justify-between">
+    <section id={id} className="glass-card flex flex-col gap-2 rounded-lg p-2.5 sm:flex-row sm:items-center sm:justify-between">
       <div
         className="inline-flex w-fit rounded-md border border-white/10 bg-black/20 p-0.5"
         role="group"
