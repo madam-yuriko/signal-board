@@ -13,6 +13,7 @@ export interface AquariumRecordInput {
   deathDate?: string;
   notes?: string;
   profile: AquariumProfile;
+  wikipediaName?: string;
   photo?: Uint8Array;
   photoMime?: string;
   removePhoto?: boolean;
@@ -48,10 +49,13 @@ function openDatabase(): DatabaseSync {
       photo_mime TEXT,
       photo_updated_at TEXT,
       taxonomy_group TEXT,
+      family_name TEXT,
       profile_summary TEXT,
       max_size TEXT,
+      wikipedia_name TEXT,
       source_url TEXT,
       external_image_url TEXT,
+      profile_is_manual INTEGER NOT NULL DEFAULT 0,
       profile_updated_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -62,10 +66,13 @@ function openDatabase(): DatabaseSync {
   const columns = database.prepare("PRAGMA table_info(aquarium_records)").all();
   const additions: Array<[string, string]> = [
     ["taxonomy_group", "TEXT"],
+    ["family_name", "TEXT"],
     ["profile_summary", "TEXT"],
     ["max_size", "TEXT"],
+    ["wikipedia_name", "TEXT"],
     ["source_url", "TEXT"],
     ["external_image_url", "TEXT"],
+    ["profile_is_manual", "INTEGER NOT NULL DEFAULT 0"],
     ["profile_updated_at", "TEXT"],
   ];
   for (const [name, definition] of additions) {
@@ -92,8 +99,11 @@ function decodeRow(row: Record<string, unknown>): AquariumRecord {
     deathDate: optionalText(row.end_date),
     notes: optionalText(row.notes),
     taxonomyGroup: optionalText(row.taxonomy_group) ?? "未分類",
+    familyName: optionalText(row.family_name),
+    scientificName: optionalText(row.scientific_name),
     profileSummary: optionalText(row.profile_summary) ?? "生体情報を再取得するには、この記録を保存し直してください。",
     maxSize: optionalText(row.max_size),
+    wikipediaName: optionalText(row.wikipedia_name),
     sourceUrl: optionalText(row.source_url),
     externalImageUrl: optionalText(row.external_image_url),
     hasUploadedPhoto: Boolean(row.has_uploaded_photo),
@@ -105,8 +115,8 @@ function decodeRow(row: Record<string, unknown>): AquariumRecord {
 }
 
 const SELECT_FIELDS = `
-  id, name, acquired_date, store, quantity, price, tank, end_date, notes,
-  taxonomy_group, profile_summary, max_size, source_url, external_image_url,
+  id, name, scientific_name, acquired_date, store, quantity, price, tank, end_date, notes,
+  taxonomy_group, family_name, profile_summary, max_size, wikipedia_name, source_url, external_image_url,
   photo IS NOT NULL AS has_uploaded_photo, photo_updated_at, profile_updated_at,
   created_at, updated_at
 `;
@@ -127,19 +137,19 @@ export function createAquariumRecord(input: AquariumRecordInput): AquariumRecord
   try {
     const result = database.prepare(`
       INSERT INTO aquarium_records (
-        name, kind, quantity, current_count, acquired_date, store, price, tank,
+        name, scientific_name, kind, quantity, current_count, acquired_date, store, price, tank,
         status, end_date, notes, photo, photo_mime, photo_updated_at,
-        taxonomy_group, profile_summary, max_size, source_url, external_image_url,
+        taxonomy_group, family_name, profile_summary, max_size, wikipedia_name, source_url, external_image_url,
         profile_updated_at, created_at, updated_at
-      ) VALUES (?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      input.name, input.quantity, input.deathDate ? 0 : input.quantity,
+      input.name, input.profile.scientificName ?? null, input.quantity, input.deathDate ? 0 : input.quantity,
       input.acquiredDate, input.store ?? null, input.unitPrice ?? null,
       input.tank ?? null, input.deathDate ? "deceased" : "active",
       input.deathDate ?? null, input.notes ?? null, input.photo ?? null,
       input.photoMime ?? null, input.photo ? now : null,
-      input.profile.taxonomyGroup, input.profile.summary, input.profile.maxSize ?? null,
-      input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
+      input.profile.taxonomyGroup, input.profile.familyName ?? null, input.profile.summary, input.profile.maxSize ?? null,
+      input.wikipediaName ?? null, input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
       now, now, now,
     ) as { lastInsertRowid: number | bigint };
     const row = database.prepare(`SELECT ${SELECT_FIELDS} FROM aquarium_records WHERE id = ?`).get(result.lastInsertRowid);
@@ -161,19 +171,19 @@ export function updateAquariumRecord(id: number, input: AquariumRecordInput): Aq
     const photoUpdatedAt = input.removePhoto ? null : input.photo ? now : existing.photo_updated_at ?? null;
     database.prepare(`
       UPDATE aquarium_records SET
-        name = ?, quantity = ?, current_count = ?, acquired_date = ?, store = ?,
+        name = ?, scientific_name = ?, quantity = ?, current_count = ?, acquired_date = ?, store = ?,
         price = ?, tank = ?, status = ?, end_date = ?, notes = ?, photo = ?,
-        photo_mime = ?, photo_updated_at = ?, taxonomy_group = ?,
-        profile_summary = ?, max_size = ?, source_url = ?, external_image_url = ?,
+        photo_mime = ?, photo_updated_at = ?, taxonomy_group = ?, family_name = ?,
+        profile_summary = ?, max_size = ?, wikipedia_name = ?, source_url = ?, external_image_url = ?,
         profile_updated_at = ?, updated_at = ?
       WHERE id = ?
     `).run(
-      input.name, input.quantity, input.deathDate ? 0 : input.quantity,
+      input.name, input.profile.scientificName ?? null, input.quantity, input.deathDate ? 0 : input.quantity,
       input.acquiredDate, input.store ?? null, input.unitPrice ?? null,
       input.tank ?? null, input.deathDate ? "deceased" : "active",
       input.deathDate ?? null, input.notes ?? null, photo, photoMime,
-      photoUpdatedAt, input.profile.taxonomyGroup, input.profile.summary, input.profile.maxSize ?? null,
-      input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
+      photoUpdatedAt, input.profile.taxonomyGroup, input.profile.familyName ?? null, input.profile.summary, input.profile.maxSize ?? null,
+      input.wikipediaName ?? null, input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
       now, now, id,
     );
     const row = database.prepare(`SELECT ${SELECT_FIELDS} FROM aquarium_records WHERE id = ?`).get(id);

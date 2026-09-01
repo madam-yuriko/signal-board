@@ -32,6 +32,13 @@ function integer(form: FormData, key: string, fallback?: number): number | undef
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function roundedYen(form: FormData, key: string): number | undefined {
+  const value = text(form, key);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : undefined;
+}
+
 async function parseInput(request: Request): Promise<AquariumRecordInput | string> {
   let form: FormData;
   try {
@@ -48,7 +55,7 @@ async function parseInput(request: Request): Promise<AquariumRecordInput | strin
   if (quantity === undefined || quantity < 1) {
     return "購入数を確認してください。";
   }
-  const unitPrice = integer(form, "unitPrice");
+  const unitPrice = roundedYen(form, "unitPrice");
   if (unitPrice !== undefined && unitPrice < 0) return "1匹あたりの購入価格を確認してください。";
 
   const photoValue = form.get("photo");
@@ -61,7 +68,8 @@ async function parseInput(request: Request): Promise<AquariumRecordInput | strin
     photoMime = photoValue.type;
   }
 
-  const profile = await fetchAquariumProfile(name);
+  const wikipediaName = text(form, "wikipediaName");
+  const profile = await fetchAquariumProfile(wikipediaName ?? name);
   return {
     name,
     acquiredDate,
@@ -72,6 +80,7 @@ async function parseInput(request: Request): Promise<AquariumRecordInput | strin
     deathDate: text(form, "deathDate"),
     notes: text(form, "notes"),
     profile,
+    wikipediaName,
     photo,
     photoMime,
     removePhoto: text(form, "removePhoto") === "true",

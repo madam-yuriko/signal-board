@@ -6,6 +6,8 @@ export const ORGANIZATIONS: Organization[] = ["WBA", "WBC", "IBF", "WBO"];
 /** その試合に懸かるタイトル。複数王座の同時開催にも対応する。 */
 export type BoutTitle =
   | { kind: "world"; organization: Organization }
+  /** 世界王座ではなく、その挑戦権を争う公式挑戦者決定戦。 */
+  | { kind: "world-eliminator"; organization: Organization }
   | { kind: "wbo-ap" }
   | { kind: "opbf" }
   | { kind: "japan" }

@@ -2,6 +2,9 @@ import type { Bout, BoutTitle, Organization } from "@/types";
 
 function titleKey(title: BoutTitle): string {
   if (title.kind === "world") return `world:${title.organization}`;
+  if (title.kind === "world-eliminator") {
+    return `world-eliminator:${title.organization}`;
+  }
   if (title.kind === "regional") return `regional:${title.label}`;
   return title.kind;
 }
@@ -53,7 +56,17 @@ export function boutTitlesFromText(
     titles.push({ kind: "regional", label: "ABF" });
   }
 
-  const worldTitle = /世界|WORLD/i.test(text);
+  const worldEliminator =
+    /(?:世界|WORLD).{0,32}挑戦者決定|挑戦者決定.{0,32}(?:世界|WORLD)/i.test(text);
+  if (worldEliminator) {
+    titles.push(
+      ...organizations.map(
+        (organization): BoutTitle => ({ kind: "world-eliminator", organization }),
+      ),
+    );
+  }
+
+  const worldTitle = /世界|WORLD/i.test(text) && !worldEliminator;
   if (worldTitle) {
     titles.push(
       ...organizations.map(
@@ -83,6 +96,11 @@ export function boutTitlesFromText(
 export function titlesForBout(
   bout: Pick<Bout, "titles" | "notes" | "organizations">,
 ): BoutTitle[] {
+  // 過去に「世界」とだけ分類済みのデータでも、公式見出しに挑戦者決定戦と
+  // 明記されていれば、より具体的な分類を優先する。
+  if (bout.notes && /挑戦者決定/.test(bout.notes)) {
+    return boutTitlesFromText(bout.notes, bout.organizations);
+  }
   if (bout.titles && bout.titles.length > 0) return bout.titles;
   return boutTitlesFromText(bout.notes ?? "", bout.organizations);
 }
@@ -95,6 +113,9 @@ export function isWorldTitle(
 
 export function boutTitleLabel(title: BoutTitle): string {
   if (title.kind === "world") return `${title.organization}世界`;
+  if (title.kind === "world-eliminator") {
+    return `${title.organization}世界 挑戦者決定`;
+  }
   if (title.kind === "wbo-ap") return "WBO-AP";
   if (title.kind === "opbf") return "OPBF";
   if (title.kind === "japan") return "日本タイトル";

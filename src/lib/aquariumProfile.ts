@@ -32,6 +32,7 @@ interface KnownTaxon {
   scientificName: string;
   imageSearchName?: string;
   taxonomyGroup: string;
+  familyName: string;
   summary: string;
   maxSize: string;
   sourceUrl: string;
@@ -42,9 +43,18 @@ const KNOWN_TAXA: Record<string, KnownTaxon> = {
     scientificName: "Psalidodon anisitsi",
     imageSearchName: "Hyphessobrycon anisitsi",
     taxonomyGroup: "カラシン",
+    familyName: "カラシン科",
     summary: "最大13.2cmまで記録される、見た目以上にしっかり大きくなる活発なテトラです。5匹以上の群れで飼うと落ち着きやすく、よく泳ぐため遊泳スペースを確保できる幅80cm以上の水槽が目安です。食性は雑食で、人工飼料を主食にしながら、冷凍・生餌や植物性の餌を少量混ぜると管理しやすくなります。柔らかい水草は食害されやすいので、植栽を主役にした水槽では硬い葉の水草を選ぶか、レイアウトへの影響を見込んでください。丈夫で人慣れしやすい一方、気性はかなり活発です。臆病な小型魚、ヒレの長い魚、餌取りの遅い魚との混泳では追い回しやヒレかじり、餌負けに注意し、同程度に活発で体格の近い魚を組み合わせるのが無難です。過密を避け、食べ残しを残さない給餌と安定した水質管理を心がけてください。",
     maxSize: "13.2cm（全長）",
     sourceUrl: "https://www.fishbase.se/summary/51004",
+  },
+  レッドライントーピードバルブ: {
+    scientificName: "Sahyadria denisonii",
+    taxonomyGroup: "コイ・ラスボラ",
+    familyName: "コイ科",
+    summary: "レッドライントーピードバルブは、全長約15cmになる大型で非常に活発な群泳魚です。単独では落ち着きにくいため、6匹以上の群れで飼い、長さ120cm以上を目安にした横長の水槽で十分な遊泳スペースを確保してください。食性は雑食で、人工飼料を基本に、冷凍・生餌や植物性の餌を混ぜると管理しやすくなります。性格は基本的に温和ですが泳力が高く、餌取りで小型魚を圧倒しやすいため、同程度に活発で丈夫な魚との混泳が向きます。原産地の流れを再現する強めの水流と高い溶存酸素量を好み、低酸素・高水温・よどんだ環境には注意が必要です。飛び出しやすいので、水槽には隙間の少ないふたを付けてください。",
+    maxSize: "約15cm（全長）",
+    sourceUrl: "https://en.aqua-fish.net/fish/denison-barb",
   },
 };
 
@@ -110,10 +120,19 @@ function extractMaxSize(extract: string): string | undefined {
   return `${match[1]}${unit}`;
 }
 
+function extractScientificName(extract: string): string | undefined {
+  const match = extract.match(/(?:学名[：:]\s*|[（(])([A-Z][a-z]+(?:\s+[a-z][a-z-]+){1,2})/);
+  return match?.[1];
+}
+
+function extractFamilyName(extract: string): string | undefined {
+  return extract.match(/([ァ-ヴー]+科)/)?.[1];
+}
+
 function unavailableProfile(): AquariumProfile {
   return {
     taxonomyGroup: "未分類",
-    summary: "公開情報を自動取得できませんでした。生体名を確認して保存し直すと、情報を再取得できます。",
+    summary: "公開情報を自動取得できませんでした。生体名を確認して保存し直すか、編集画面でWikipedia名を指定して再取得できます。",
   };
 }
 
@@ -156,6 +175,8 @@ async function knownTaxonProfile(name: string): Promise<AquariumProfile | undefi
   const imageUrl = await fetchCommonsImage(taxon.imageSearchName ?? taxon.scientificName);
   return {
     taxonomyGroup: taxon.taxonomyGroup,
+    familyName: taxon.familyName,
+    scientificName: taxon.scientificName,
     summary: taxon.summary,
     maxSize: taxon.maxSize,
     sourceUrl: taxon.sourceUrl,
@@ -202,6 +223,8 @@ export async function fetchAquariumProfile(name: string): Promise<AquariumProfil
       : undefined);
     return {
       taxonomyGroup: classify(`${page.title ?? ""} ${page.extract}`),
+      familyName: extractFamilyName(page.extract),
+      scientificName: extractScientificName(page.extract),
       summary: shortSummary(page.extract),
       maxSize: extractMaxSize(page.extract),
       sourceUrl,

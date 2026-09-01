@@ -9,8 +9,11 @@ export interface AquariumRecord {
   deathDate?: string;
   notes?: string;
   taxonomyGroup: string;
+  familyName?: string;
+  scientificName?: string;
   profileSummary: string;
   maxSize?: string;
+  wikipediaName?: string;
   sourceUrl?: string;
   externalImageUrl?: string;
   hasUploadedPhoto: boolean;
@@ -22,6 +25,8 @@ export interface AquariumRecord {
 
 export interface AquariumProfile {
   taxonomyGroup: string;
+  familyName?: string;
+  scientificName?: string;
   summary: string;
   maxSize?: string;
   sourceUrl?: string;

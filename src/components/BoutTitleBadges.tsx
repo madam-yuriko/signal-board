@@ -3,7 +3,9 @@ import { ORG_STYLES } from "@/lib/format";
 import { boutTitleLabel, titlesForBout } from "@/lib/boutTitles";
 
 function titleStyle(title: BoutTitle): string {
-  if (title.kind === "world") return ORG_STYLES[title.organization];
+  if (title.kind === "world" || title.kind === "world-eliminator") {
+    return ORG_STYLES[title.organization];
+  }
   if (title.kind === "wbo-ap") {
     return "border-blue-400/35 bg-blue-400/10 text-blue-200";
   }
