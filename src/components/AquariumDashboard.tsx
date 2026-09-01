@@ -7,11 +7,13 @@ import {
   CircleDollarSign,
   ExternalLink,
   Fish,
+  Hash,
   HeartPulse,
   ImagePlus,
   LoaderCircle,
   Pencil,
   Plus,
+  Ruler,
   Search,
   Store,
   Trash2,
@@ -19,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import DataViewToolbar, { type DataViewMode } from "@/components/DataViewToolbar";
+import CalendarDatePicker from "@/components/CalendarDatePicker";
 import type { AquariumRecord } from "@/types/aquarium";
 
 function today() {
@@ -105,16 +108,15 @@ function AquariumCard({ record, onEdit, onDelete }: {
           <Metric icon={HeartPulse} label={record.deathDate ? "生存期間" : "飼育期間"} value={durationLabel(record)} />
           <Metric icon={Store} label="購入店舗" value={record.store ?? "未登録"} />
           <Metric icon={CircleDollarSign} label="1匹あたり" value={formatPrice(record.unitPrice)} />
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-gray-400">
-          <span className="rounded bg-white/5 px-2 py-1">購入数 {record.quantity}</span>
-          {record.tank && <span className="rounded bg-white/5 px-2 py-1">{record.tank}</span>}
-          {record.unitPrice !== undefined && <span className="rounded bg-white/5 px-2 py-1">購入総額 {formatPrice(totalPrice(record))}</span>}
-          {record.deathDate && <span className="rounded bg-white/5 px-2 py-1">死亡日 {formatDate(record.deathDate)}</span>}
+          <Metric icon={Hash} label="購入数" value={`${record.quantity}匹`} />
+          <Metric icon={Ruler} label="最大サイズ" value={record.maxSize ?? "未取得"} />
+          <Metric icon={Waves} label="水槽" value={record.tank ?? "未登録"} />
+          <Metric icon={CircleDollarSign} label="購入総額" value={formatPrice(totalPrice(record))} />
+          {record.deathDate && <Metric icon={CalendarDays} label="死亡日" value={formatDate(record.deathDate)} />}
         </div>
 
         <div className="mt-3 border-t border-white/7 pt-3">
+          <h3 className="mb-1.5 text-[10px] font-semibold tracking-wide text-cyan-300/80">飼育メモ（自動要約）</h3>
           <p className="text-[11px] leading-[1.75] text-gray-400">{record.profileSummary}</p>
           {record.sourceUrl && <a href={record.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[10px] text-cyan-500 hover:text-cyan-300">出典を確認 <ExternalLink className="h-3 w-3" /></a>}
         </div>
@@ -162,12 +164,12 @@ function RecordEditor({ record, onClose, onSaved }: { record?: AquariumRecord; o
         <form onSubmit={submit} className="p-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="生体の名前" required className="sm:col-span-2" hint="この名前で情報を検索します"><input name="name" required defaultValue={record?.name} placeholder="例：ネオンテトラ" className={inputClass} /></Field>
-            <Field label="購入日" required><input type="date" name="acquiredDate" required defaultValue={record?.acquiredDate ?? today()} className={inputClass} /></Field>
+            <Field label="購入日" required><CalendarDatePicker name="acquiredDate" required defaultValue={record?.acquiredDate ?? today()} /></Field>
             <Field label="購入店舗名"><input name="store" defaultValue={record?.store} placeholder="例：アクアショップ○○" className={inputClass} /></Field>
             <Field label="購入数" required><input type="number" min="1" name="quantity" required defaultValue={record?.quantity ?? 1} className={inputClass} /></Field>
             <Field label="購入価格（1匹あたり）"><div className="relative"><input type="number" min="0" name="unitPrice" defaultValue={record?.unitPrice} placeholder="0" className={`${inputClass} pr-8`} /><span className="absolute right-2.5 top-2.5 text-[10px] text-gray-600">円</span></div></Field>
             <Field label="水槽名"><input name="tank" defaultValue={record?.tank} placeholder="例：リビング60cm水槽" className={inputClass} /></Field>
-            <Field label="死亡日" hint="飼育中なら空欄"><input type="date" name="deathDate" defaultValue={record?.deathDate} className={inputClass} /></Field>
+            <Field label="死亡日" hint="飼育中なら空欄"><CalendarDatePicker name="deathDate" allowClear defaultValue={record?.deathDate} /></Field>
             <Field label="写真" className="sm:col-span-2" hint="未登録ならネット写真を表示">
               <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-white/12 bg-black/15 p-3">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-cyan-400/25 bg-cyan-400/8 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/12"><ImagePlus className="h-3.5 w-3.5" />写真を選ぶ<input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={(event) => setPhotoName(event.target.files?.[0]?.name)} /></label>
@@ -193,10 +195,10 @@ function RecordEditor({ record, onClose, onSaved }: { record?: AquariumRecord; o
 function AquariumTable({ records, onEdit, onDelete }: { records: AquariumRecord[]; onEdit: (record: AquariumRecord) => void; onDelete: (record: AquariumRecord) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-white/8 bg-white/[0.02]">
-      <table className="w-full min-w-[1040px] border-collapse text-left text-[11px]">
-        <thead className="border-b border-white/8 bg-white/[0.035] text-[10px] font-semibold text-gray-500"><tr><th className="px-3 py-2.5">生体</th><th className="px-3 py-2.5">購入日</th><th className="px-3 py-2.5">購入店舗</th><th className="px-3 py-2.5 text-right">1匹あたり</th><th className="px-3 py-2.5 text-center">購入数</th><th className="px-3 py-2.5 text-right">購入総額</th><th className="px-3 py-2.5">水槽</th><th className="px-3 py-2.5">生存情報</th><th className="px-3 py-2.5">期間</th><th className="w-20 px-3 py-2.5"></th></tr></thead>
+      <table className="w-full min-w-[1120px] border-collapse text-left text-[11px]">
+        <thead className="border-b border-white/8 bg-white/[0.035] text-[10px] font-semibold text-gray-500"><tr><th className="px-3 py-2.5">生体</th><th className="px-3 py-2.5">最大サイズ</th><th className="px-3 py-2.5">購入日</th><th className="px-3 py-2.5">購入店舗</th><th className="px-3 py-2.5 text-right">1匹あたり</th><th className="px-3 py-2.5 text-center">購入数</th><th className="px-3 py-2.5 text-right">購入総額</th><th className="px-3 py-2.5">水槽</th><th className="px-3 py-2.5">生存情報</th><th className="px-3 py-2.5">期間</th><th className="w-20 px-3 py-2.5"></th></tr></thead>
         <tbody className="divide-y divide-white/[0.055]">{records.map((record) => <tr key={record.id} className="text-gray-300 hover:bg-white/[0.025]">
-          <td className="px-3 py-2.5"><div className="font-semibold text-white">{record.name}</div><div className="text-[10px] text-cyan-600">{record.taxonomyGroup}</div></td>
+          <td className="px-3 py-2.5"><div className="font-semibold text-white">{record.name}</div><div className="text-[10px] text-cyan-600">{record.taxonomyGroup}</div></td><td className="whitespace-nowrap px-3 py-2.5 text-cyan-100/80">{record.maxSize ?? "—"}</td>
           <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{formatDate(record.acquiredDate)}</td><td className="max-w-40 truncate px-3 py-2.5">{record.store ?? "—"}</td><td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatPrice(record.unitPrice)}</td><td className="px-3 py-2.5 text-center tabular-nums">{record.quantity}</td><td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{formatPrice(totalPrice(record))}</td><td className="max-w-36 truncate px-3 py-2.5">{record.tank ?? "—"}</td>
           <td className="px-3 py-2.5">{record.deathDate ? <div><span className="text-gray-400">死亡</span><div className="text-[10px] tabular-nums text-gray-600">{formatDate(record.deathDate)}</div></div> : <span className="text-emerald-300">飼育中</span>}</td><td className="whitespace-nowrap px-3 py-2.5 font-semibold tabular-nums text-cyan-200">{durationLabel(record)}</td>
           <td className="px-3 py-2.5"><div className="flex justify-end gap-1"><button type="button" onClick={() => onEdit(record)} className="rounded p-1.5 text-gray-500 hover:bg-white/8 hover:text-cyan-200" aria-label={`${record.name}を編集`}><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => onDelete(record)} className="rounded p-1.5 text-gray-500 hover:bg-rose-400/10 hover:text-rose-300" aria-label={`${record.name}を削除`}><Trash2 className="h-3.5 w-3.5" /></button></div></td>
@@ -217,7 +219,7 @@ export default function AquariumDashboard({ initialRecords }: { initialRecords: 
 
   const groups = useMemo(() => [...new Set(records.map((record) => record.taxonomyGroup))].sort((a, b) => a.localeCompare(b, "ja")), [records]);
   const filtered = useMemo(() => records.filter((record) => {
-    const haystack = [record.name, record.taxonomyGroup, record.store, record.tank, record.notes, record.profileSummary].filter(Boolean).join(" ").toLocaleLowerCase("ja");
+    const haystack = [record.name, record.taxonomyGroup, record.maxSize, record.store, record.tank, record.notes, record.profileSummary].filter(Boolean).join(" ").toLocaleLowerCase("ja");
     return (group === "all" || record.taxonomyGroup === group) && (survival === "all" || (survival === "dead") === Boolean(record.deathDate)) && (!query.trim() || haystack.includes(query.trim().toLocaleLowerCase("ja")));
   }), [group, query, records, survival]);
 
@@ -239,7 +241,7 @@ export default function AquariumDashboard({ initialRecords }: { initialRecords: 
   }
 
   return <div className="space-y-4">
-    <section className="relative overflow-hidden rounded-xl border border-cyan-400/10 bg-gradient-to-r from-cyan-950/35 via-[#11151b] to-emerald-950/25 px-4 py-5 sm:px-5"><div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full bg-cyan-400/8 blur-3xl" /><div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><div className="mb-2 flex items-center gap-2 text-[10px] font-bold tracking-[0.18em] text-cyan-400/80"><Waves className="h-3.5 w-3.5" />AQUARIUM LOG</div><h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">アクアリウム管理</h1><p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-gray-400">購入情報と生存記録は手入力。種族、短い特徴、写真は生体名から自動で補完します。</p></div><button type="button" onClick={() => setEditor("new")} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-cyan-400 px-4 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-950/40 hover:bg-cyan-300"><Plus className="h-4 w-4" />新しく登録</button></div></section>
+    <section className="relative overflow-hidden rounded-xl border border-cyan-400/10 bg-gradient-to-r from-cyan-950/35 via-[#11151b] to-emerald-950/25 px-4 py-5 sm:px-5"><div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full bg-cyan-400/8 blur-3xl" /><div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><div className="mb-2 flex items-center gap-2 text-[10px] font-bold tracking-[0.18em] text-cyan-400/80"><Waves className="h-3.5 w-3.5" />AQUARIUM LOG</div><h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">アクアリウム管理</h1><p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-gray-400">購入情報と生存記録は手入力。種族、最大サイズ、飼育メモ、写真は生体名から自動で補完します。</p></div><button type="button" onClick={() => setEditor("new")} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-cyan-400 px-4 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-950/40 hover:bg-cyan-300"><Plus className="h-4 w-4" />新しく登録</button></div></section>
 
     <section className="grid grid-cols-2 gap-2 lg:grid-cols-4"><Metric icon={Fish} label="登録記録" value={`${records.length}件`} /><Metric icon={HeartPulse} label="飼育中の匹数" value={`${aliveQuantity}匹`} /><Metric icon={Waves} label="自動分類された種族" value={`${groups.length}種族`} /><Metric icon={CircleDollarSign} label="購入金額合計" value={formatPrice(totalSpent)} /></section>
 

@@ -13,6 +13,7 @@ import { parseJbcResultPdf } from "@/lib/jbcResultPdf";
 import type { BoxingEvent } from "@/types";
 
 const JBC_API = "https://jbc.or.jp/wp-json/wp/v2/posts";
+const JBC_MEDIA_API = "https://jbc.or.jp/wp-json/wp/v2/media";
 const JBC_SCHEDULED_CATEGORY = 5;
 const JBC_FINISHED_CATEGORY = 6;
 const REVALIDATE_SECONDS = 60 * 60 * 24;
@@ -56,6 +57,11 @@ interface JbcPost {
   title: { rendered: string };
   content: { rendered: string };
   meta?: Record<string, unknown>;
+}
+
+interface JbcMedia {
+  source_url: string;
+  slug?: string;
 }
 
 export interface BoxingFeed {
@@ -366,7 +372,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v49-undecided-opponent"],
+  ["signal-board-boxing-feed-v55-jbc-media-results"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -686,8 +692,13 @@ async function enrichEventsWithResults(
     baseEvents.flatMap((event) =>
       event.status === "finished" &&
       event.sourceName?.toLowerCase().includes("jbc") &&
-      event.detailsUrl
-        ? [[event.id, event.detailsUrl] as const]
+      (event.sourceUrl || event.detailsUrl)
+        ? [[
+            event.id,
+            [...new Set([event.sourceUrl, event.detailsUrl].filter(
+              (url): url is string => Boolean(url),
+            ))],
+          ] as const]
         : [],
     ),
   );
@@ -704,12 +715,7 @@ function mergeBoxmobCards(
   assertExactCardAssignments(events, assignments);
 
   return events.map((event, index) => {
-    if (
-      event.status !== "finished" ||
-      event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html")
-    ) {
-      return event;
-    }
+    if (event.status !== "finished") return event;
     const cardSet = assignments.get(index);
     if (!cardSet) return event;
     const supplementalBouts = [
@@ -768,7 +774,7 @@ function assertExactCardAssignments(
 
 async function enrichEventsWithJbcResults(
   events: BoxingEvent[],
-  resultUrls: Map<string, string>,
+  resultUrls: Map<string, readonly string[]>,
 ): Promise<BoxingEvent[]> {
   const enriched = events.map((event) => ({ ...event }));
   const targets = enriched
@@ -787,23 +793,39 @@ async function enrichEventsWithJbcResults(
       while (cursor < targets.length) {
         const target = targets[cursor];
         cursor += 1;
-        try {
-          const bouts = await parseJbcResultPdf(
-            resultUrls.get(target.event.id)!,
-            target.event.id,
-          );
-          if (bouts.length > 0) {
-            enriched[target.index] = {
-              ...target.event,
-              bouts: target.event.bouts.length > 0
-                ? mergeCardResults(target.event.bouts, bouts)
-                : bouts,
-            };
+        const urls = resultUrls.get(target.event.id) ?? [];
+        let { best, lastError } = await selectBestJbcResultPdf(
+          target.event,
+          urls,
+        );
+
+        // JBCの興行記事には対戦カードPDFだけが添付され、結果PDFはメディア一覧に
+        // 単独で登録されることがある。記事側で有効な結果を得られない時だけ、
+        // 同日付の結果PDFを探して選手名で突き合わせる。
+        if (!best) {
+          try {
+            const mediaUrls = await discoverJbcResultPdfUrls(target.event.date);
+            const discovered = await selectBestJbcResultPdf(
+              target.event,
+              mediaUrls,
+            );
+            best = discovered.best;
+            lastError = discovered.lastError ?? lastError;
+          } catch (error) {
+            lastError = error;
           }
-        } catch (error) {
+        }
+        if (best && best.score > 0) {
+          enriched[target.index] = {
+            ...target.event,
+            bouts: target.event.bouts.length > 0
+              ? mergeCardResults(target.event.bouts, best.bouts)
+              : best.bouts,
+          };
+        } else if (lastError) {
           console.warn(
             `Unable to parse JBC result PDF for ${target.event.id}`,
-            error,
+            lastError,
           );
         }
       }
@@ -813,6 +835,55 @@ async function enrichEventsWithJbcResults(
   return enriched;
 }
 
+async function selectBestJbcResultPdf(
+  event: BoxingEvent,
+  urls: readonly string[],
+): Promise<{
+  best?: { bouts: BoxingEvent["bouts"]; score: number };
+  lastError?: unknown;
+}> {
+  let best: { bouts: BoxingEvent["bouts"]; score: number } | undefined;
+  let lastError: unknown;
+  for (const url of [...new Set(urls)]) {
+    try {
+      const bouts = await parseJbcResultPdf(url, event.id);
+      const score = jbcResultQuality(event.bouts, bouts);
+      if (score > (best?.score ?? 0)) best = { bouts, score };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  return { best, lastError };
+}
+
+async function discoverJbcResultPdfUrls(date: string): Promise<string[]> {
+  const compactDate = date.replaceAll("-", "");
+  if (!/^\d{8}$/.test(compactDate)) return [];
+
+  const params = new URLSearchParams({
+    search: compactDate.slice(2),
+    per_page: "100",
+    _fields: "source_url,slug",
+  });
+  const response = await fetch(`${JBC_MEDIA_API}?${params}`, {
+    headers: { Accept: "application/json" },
+    next: { revalidate: REVALIDATE_SECONDS },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) {
+    throw new Error(`JBC media API returned ${response.status}`);
+  }
+
+  return ((await response.json()) as JbcMedia[])
+    .filter(({ source_url, slug = "" }) => {
+      const label = `${slug} ${source_url}`;
+      return /\.pdf(?:$|[?#])/i.test(source_url) &&
+        /(?:result|kekka|試合結果|試合報告)/i.test(label) &&
+        !/(?:kumiawase|組合せ|keiryou|計量)/i.test(label);
+    })
+    .map(({ source_url }) => source_url);
+}
+
 async function loadBoxmobCardSets(
   events: BoxingEvent[],
   maxDates = MAX_HISTORY_CARD_DATES,
@@ -820,7 +891,9 @@ async function loadBoxmobCardSets(
   const boxmobTargets = events.filter(
     (event) =>
       event.status === "finished" &&
-      !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html"),
+      (event.sourceName?.toLowerCase().includes("jbc") ||
+        event.sourceName === "ボクシングモバイル" ||
+        Boolean(event.boxmobSid)),
   );
   if (boxmobTargets.length === 0) return [];
 
@@ -925,10 +998,17 @@ function storedBoutsForEvent(event: BoxingEvent): BoxingEvent["bouts"] {
 }
 
 function normalizeFighterName(value: string): string {
-  return value
+  const normalized = value
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]/gu, "");
+  // 表記媒体によって「イェジョン／イェジュン」のような転写差がある。
+  // 結果照合のキーだけを正規化し、画面上の表示名は原文のまま保持する。
+  return normalized
+    .replace(/髙/g, "高")
+    .replace(/^キムイェジョン$/, "キムイェジュン")
+    .replace(/^ウィリバリド/, "ウィリバルド")
+    .replace(/^テイティコーン/, "ティティコン");
 }
 
 function sameFighter(left: string, right: string): boolean {
@@ -1063,23 +1143,45 @@ function assignCardSets(
 }
 
 function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bouts"]): BoxingEvent["bouts"] {
-  const positionalResults = new Map<number, BoxingEvent["bouts"][number]>();
-  for (const result of results) {
-    if (
-      !result.jpFighter.startsWith("__jbc_red_") ||
-      !result.opponent.startsWith("__jbc_blue_")
-    ) continue;
-    const boutNumber = Number(result.id.match(/-b(\d+)$/)?.[1]);
-    if (Number.isInteger(boutNumber) && boutNumber > 0) {
-      positionalResults.set(boutNumber, result);
-    }
-  }
+  const jbcResults = results.filter((result) => /-p\d+-b\d+$/.test(result.id));
+  const regularJbcResults = jbcResults.filter(
+    (result) => result.result !== "cancelled" && result.method !== "引分",
+  );
+  const regularCards = cards.filter((card) => card.result !== "cancelled");
+  const canUseJbcOrder = regularCards.length === regularJbcResults.length;
+  const allJbcNamesArePlaceholders = jbcResults.length > 0 && jbcResults.every(
+    (result) => isJbcPlaceholderResult(result),
+  );
+  const highestJbcBoutNumber = Math.max(
+    0,
+    ...jbcResults.map((result) => jbcBoutNumber(result) ?? 0),
+  );
+  const jbcResultsByBoutNumber = new Map(
+    jbcResults.flatMap((result) => {
+      const boutNumber = jbcBoutNumber(result);
+      return boutNumber === undefined ? [] : [[boutNumber, result] as const];
+    }),
+  );
 
   return cards.map((card, index) => {
     const namedResult = results.find((candidate) => samePair(card, candidate));
-    // Boxing Mobileはメインから、JBCは第1試合から並ぶため順序が逆。
-    const positionalResult = positionalResults.get(cards.length - index);
-    const result = namedResult ?? positionalResult;
+    // Boxing Mobileはメインから、JBC結果PDFは第1試合から並ぶため順序が逆。
+    // カード件数が一致する場合だけ順序補完を使い、別興行の結果を誤結合しない。
+    const regularCardIndex = cards
+      .slice(0, index)
+      .filter((candidate) => candidate.result !== "cancelled")
+      .length;
+    const positionalResult = !namedResult && canUseJbcOrder && card.result !== "cancelled"
+      ? regularJbcResults[regularJbcResults.length - 1 - regularCardIndex]
+      : undefined;
+    // JBCの旧PDFは氏名を図形化しているものがあり、採点やTKOだけを抽出できる。
+    // 公式PDFの第N試合はBoxMobのメインからの並びと逆順なので、最大試合番号を
+    // 基準にカードへ対応付ける。全件が取れなくても、照合済みの試合だけ反映する。
+    const numberedResult = !namedResult && allJbcNamesArePlaceholders &&
+      card.result !== "cancelled"
+      ? jbcResultsByBoutNumber.get(highestJbcBoutNumber - regularCardIndex)
+      : undefined;
+    const result = namedResult ?? numberedResult ?? positionalResult;
     return result
       ? {
           ...card,
@@ -1100,4 +1202,65 @@ function mergeCardResults(cards: BoxingEvent["bouts"], results: BoxingEvent["bou
         }
       : card;
   });
+}
+
+function isJbcPlaceholderResult(result: BoxingEvent["bouts"][number]): boolean {
+  return result.jpFighter.startsWith("__jbc_red_") &&
+    result.opponent.startsWith("__jbc_blue_");
+}
+
+function jbcBoutNumber(result: BoxingEvent["bouts"][number]): number | undefined {
+  const match = result.id.match(/-b(\d+)$/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function sameJbcPlaceholderSlot(
+  card: BoxingEvent["bouts"][number],
+  result: BoxingEvent["bouts"][number],
+): boolean {
+  // 結果PDFに出る団体名はランキング表記を含むため、タイトルの一致判定には使えない。
+  return card.weightClass === result.weightClass;
+}
+
+function jbcResultQuality(
+  cards: BoxingEvent["bouts"],
+  results: BoxingEvent["bouts"],
+): number {
+  if (results.length === 0) return 0;
+
+  const namedResults = results.filter((result) => result.method !== "引分");
+  const namedMatches = cards.filter((card) =>
+    namedResults.some((result) => samePair(card, result)),
+  ).length;
+  const meaningfulResults = results.filter(
+    (result) => result.result === "cancelled" || result.method !== "引分",
+  ).length;
+  const placeholderResults = results.every(isJbcPlaceholderResult);
+  const regularCards = cards.filter((card) => card.result !== "cancelled");
+  const regularResults = results.filter((result) => result.result !== "cancelled").length;
+  const positionalFallbackAvailable =
+    placeholderResults && regularCards.length === regularResults;
+  const highestJbcBoutNumber = Math.max(
+    0,
+    ...results.map((result) => jbcBoutNumber(result) ?? 0),
+  );
+  const placeholderSlotMatches = placeholderResults
+    ? results.filter((result) => {
+        const boutNumber = jbcBoutNumber(result);
+        const card = boutNumber === undefined
+          ? undefined
+          : regularCards[highestJbcBoutNumber - boutNumber];
+        return card ? sameJbcPlaceholderSlot(card, result) : false;
+      }).length
+    : 0;
+  const verifiedPlaceholderMapping =
+    placeholderResults && results.length >= 2 && placeholderSlotMatches === results.length;
+
+  // 同日に複数会場のPDFが存在するため、単に「結果らしい行がある」だけでは
+  // 別興行のPDFを誤採用してしまう。選手名が一致するか、名前を復元できないPDFを
+  // 件数一致で位置対応できる場合、または試合番号・階級が全件対応する場合だけ
+  // 有効な候補として扱う。
+  if (namedMatches > 0) return namedMatches * 100 + meaningfulResults;
+  if (verifiedPlaceholderMapping) return 80 + meaningfulResults;
+  return positionalFallbackAvailable ? 50 + meaningfulResults : 0;
 }

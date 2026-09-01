@@ -10,6 +10,7 @@ export interface AquariumRecord {
   notes?: string;
   taxonomyGroup: string;
   profileSummary: string;
+  maxSize?: string;
   sourceUrl?: string;
   externalImageUrl?: string;
   hasUploadedPhoto: boolean;
@@ -22,6 +23,7 @@ export interface AquariumRecord {
 export interface AquariumProfile {
   taxonomyGroup: string;
   summary: string;
+  maxSize?: string;
   sourceUrl?: string;
   imageUrl?: string;
 }

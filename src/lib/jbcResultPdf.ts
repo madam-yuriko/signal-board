@@ -2,7 +2,7 @@ import type { Bout } from "@/types";
 import { organizationsFromText } from "@/lib/organizations";
 
 const REVALIDATE_SECONDS = 60 * 60 * 24;
-const RESULT_PATTERN = /(?:TKO|KO|RTD|判定|負傷|棄権|失格|引分|ドロー|無効|NC)/i;
+const RESULT_PATTERN = /(?:TKO|KO|RTD|判定|負傷|棄権|失格|引分|ドロー|無効|中止|NC)/i;
 
 interface PdfTextItem {
   str: string;
@@ -91,6 +91,42 @@ function resultMethod(
     .replace(/(TKO|KO|RTD)(\d+R)/i, "$1 $2");
 }
 
+function scoreDecision(
+  items: PositionedText[],
+): { result: Bout["result"]; method: string } | undefined {
+  // 旧JBC結果PDFは選手名・「勝」の文字が図形化される一方、判定の採点だけは
+  // テキストとして残る。3人の採点を左右の選手ごとに比較して判定結果を復元する。
+  const scoreColumns: Array<[number, number]> = [
+    [698, 735],
+    [740, 777],
+    [782, 820],
+  ];
+  const scorecards = scoreColumns.map(([minX, maxX]) =>
+    items
+      .filter(
+        (item) =>
+          item.x >= minX &&
+          item.x <= maxX &&
+          /^\d{1,3}$/.test(item.text.trim()),
+      )
+      .sort((left, right) => left.x - right.x)
+      .map((item) => Number(item.text.trim())),
+  );
+  if (!scorecards.every((scores) => scores.length === 2)) return undefined;
+
+  let redWins = 0;
+  let blueWins = 0;
+  for (const [red, blue] of scorecards) {
+    if (red > blue) redWins += 1;
+    if (blue > red) blueWins += 1;
+  }
+  if (redWins === 0 && blueWins === 0) return undefined;
+  return {
+    result: redWins === blueWins ? "draw" : redWins > blueWins ? "win" : "loss",
+    method: `判定 ${redWins}-${blueWins}`,
+  };
+}
+
 function weightClass(items: PositionedText[], markerY: number): string {
   const raw = normalizeText(
     items
@@ -134,7 +170,7 @@ function parsePage(items: PositionedText[], eventId: string, page: number): Bout
       (item) =>
         item.x >= 20 &&
         item.x <= 36 &&
-        /^\d{1,2}$/.test(item.text.trim()) &&
+        /^(?:\d{1,2}|-)$/.test(item.text.trim()) &&
         item.y < 455,
     )
     .filter((marker) =>
@@ -165,17 +201,27 @@ function parsePage(items: PositionedText[], eventId: string, page: number): Bout
     );
     const redMethod = resultMethod(row, 285, 370);
     const blueMethod = resultMethod(row, 570, 655);
-    const redWon = explicitRedWin || (!explicitBlueWin && Boolean(redMethod) && !blueMethod);
-    const blueWon = explicitBlueWin || (!explicitRedWin && Boolean(blueMethod) && !redMethod);
+    const decision = !redMethod && !blueMethod ? scoreDecision(row) : undefined;
+    const redWon = explicitRedWin ||
+      (!explicitBlueWin && Boolean(redMethod) && !blueMethod) ||
+      decision?.result === "win";
+    const blueWon = explicitBlueWin ||
+      (!explicitRedWin && Boolean(blueMethod) && !redMethod) ||
+      decision?.result === "loss";
+    const cancelled = row.some((item) => /中止/.test(item.text));
     const method = redWon
-      ? redMethod
+      ? redMethod ?? decision?.method
       : blueWon
-        ? blueMethod
-        : redMethod ?? blueMethod ?? resultMethod(row, 285, 655);
+        ? blueMethod ?? decision?.method
+        : cancelled
+          ? "中止"
+          : redMethod ?? blueMethod ?? decision?.method ?? resultMethod(row, 285, 655);
     // 旧様式PDFでは選手名が図形化され、pdf.jsで文字を取得できない。
     // その場合も試合番号・勝敗・決着を保持し、呼び出し側でカード順と照合する。
     if ((!redName || !blueName) && !method && !redWon && !blueWon) return [];
-    const boutNumber = marker.text.trim();
+    const boutNumber = marker.text.trim() === "-"
+      ? String(index + 1)
+      : marker.text.trim();
 
     return [
       {
@@ -184,7 +230,13 @@ function parsePage(items: PositionedText[], eventId: string, page: number): Bout
         opponent: blueName ?? `__jbc_blue_${boutNumber}`,
         weightClass: weightClass(row, marker.y),
         organizations: organizationsFromText(row.map((item) => item.text).join(" ")),
-        result: redWon ? "win" : blueWon ? "loss" : "draw",
+        result: cancelled
+          ? "cancelled"
+          : redWon
+            ? "win"
+            : blueWon
+              ? "loss"
+              : decision?.result ?? "draw",
         method: method ?? (redWon || blueWon ? "勝利" : "引分"),
       },
     ];

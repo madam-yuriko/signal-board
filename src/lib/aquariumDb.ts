@@ -49,6 +49,7 @@ function openDatabase(): DatabaseSync {
       photo_updated_at TEXT,
       taxonomy_group TEXT,
       profile_summary TEXT,
+      max_size TEXT,
       source_url TEXT,
       external_image_url TEXT,
       profile_updated_at TEXT,
@@ -62,6 +63,7 @@ function openDatabase(): DatabaseSync {
   const additions: Array<[string, string]> = [
     ["taxonomy_group", "TEXT"],
     ["profile_summary", "TEXT"],
+    ["max_size", "TEXT"],
     ["source_url", "TEXT"],
     ["external_image_url", "TEXT"],
     ["profile_updated_at", "TEXT"],
@@ -91,6 +93,7 @@ function decodeRow(row: Record<string, unknown>): AquariumRecord {
     notes: optionalText(row.notes),
     taxonomyGroup: optionalText(row.taxonomy_group) ?? "未分類",
     profileSummary: optionalText(row.profile_summary) ?? "生体情報を再取得するには、この記録を保存し直してください。",
+    maxSize: optionalText(row.max_size),
     sourceUrl: optionalText(row.source_url),
     externalImageUrl: optionalText(row.external_image_url),
     hasUploadedPhoto: Boolean(row.has_uploaded_photo),
@@ -103,7 +106,7 @@ function decodeRow(row: Record<string, unknown>): AquariumRecord {
 
 const SELECT_FIELDS = `
   id, name, acquired_date, store, quantity, price, tank, end_date, notes,
-  taxonomy_group, profile_summary, source_url, external_image_url,
+  taxonomy_group, profile_summary, max_size, source_url, external_image_url,
   photo IS NOT NULL AS has_uploaded_photo, photo_updated_at, profile_updated_at,
   created_at, updated_at
 `;
@@ -126,16 +129,16 @@ export function createAquariumRecord(input: AquariumRecordInput): AquariumRecord
       INSERT INTO aquarium_records (
         name, kind, quantity, current_count, acquired_date, store, price, tank,
         status, end_date, notes, photo, photo_mime, photo_updated_at,
-        taxonomy_group, profile_summary, source_url, external_image_url,
+        taxonomy_group, profile_summary, max_size, source_url, external_image_url,
         profile_updated_at, created_at, updated_at
-      ) VALUES (?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.name, input.quantity, input.deathDate ? 0 : input.quantity,
       input.acquiredDate, input.store ?? null, input.unitPrice ?? null,
       input.tank ?? null, input.deathDate ? "deceased" : "active",
       input.deathDate ?? null, input.notes ?? null, input.photo ?? null,
       input.photoMime ?? null, input.photo ? now : null,
-      input.profile.taxonomyGroup, input.profile.summary,
+      input.profile.taxonomyGroup, input.profile.summary, input.profile.maxSize ?? null,
       input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
       now, now, now,
     ) as { lastInsertRowid: number | bigint };
@@ -161,7 +164,7 @@ export function updateAquariumRecord(id: number, input: AquariumRecordInput): Aq
         name = ?, quantity = ?, current_count = ?, acquired_date = ?, store = ?,
         price = ?, tank = ?, status = ?, end_date = ?, notes = ?, photo = ?,
         photo_mime = ?, photo_updated_at = ?, taxonomy_group = ?,
-        profile_summary = ?, source_url = ?, external_image_url = ?,
+        profile_summary = ?, max_size = ?, source_url = ?, external_image_url = ?,
         profile_updated_at = ?, updated_at = ?
       WHERE id = ?
     `).run(
@@ -169,7 +172,7 @@ export function updateAquariumRecord(id: number, input: AquariumRecordInput): Aq
       input.acquiredDate, input.store ?? null, input.unitPrice ?? null,
       input.tank ?? null, input.deathDate ? "deceased" : "active",
       input.deathDate ?? null, input.notes ?? null, photo, photoMime,
-      photoUpdatedAt, input.profile.taxonomyGroup, input.profile.summary,
+      photoUpdatedAt, input.profile.taxonomyGroup, input.profile.summary, input.profile.maxSize ?? null,
       input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
       now, now, id,
     );

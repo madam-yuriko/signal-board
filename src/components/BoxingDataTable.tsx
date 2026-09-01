@@ -8,6 +8,7 @@ import BoutTitleBadges from "@/components/BoutTitleBadges";
 import { isWorldTitle, titlesForBout } from "@/lib/boutTitles";
 import {
   fighterAnnotation,
+  fighterInfo,
   normalizeFighterName,
   sameFighterName,
 } from "@/lib/fighterInfo";
@@ -107,6 +108,46 @@ function resultBadge(result: TableBoutResult) {
       {labels[result]}
     </span>
   );
+}
+
+function boutOutcome(bout: BoutWithEvent) {
+  const result = tableResult(bout);
+  if (result === "win" || result === "loss") {
+    const winner = result === "win" ? bout.jpFighter : bout.opponent;
+    return (
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
+        {resultBadge("win")}
+        <span className="font-semibold text-gray-200">{winner}</span>
+      </div>
+    );
+  }
+  return resultBadge(result);
+}
+
+function japaneseOutcome(bout: BoutWithEvent): TableBoutResult | undefined {
+  const leftInfo = fighterInfo(bout.jpFighter, {
+    country: bout.jpFighterCountry,
+    gym: bout.jpFighterGym,
+  });
+  const rightInfo = fighterInfo(bout.opponent, {
+    country: bout.opponentCountry,
+    gym: bout.opponentGym,
+  });
+  const leftIsForeign = Boolean(leftInfo.country);
+  const rightIsForeign = Boolean(rightInfo.country);
+
+  // 国籍が同じ側同士の試合は、日本人の勝敗として表示しない。
+  if (leftIsForeign === rightIsForeign) return undefined;
+
+  const result = tableResult(bout);
+  if (result !== "win" && result !== "loss") return result;
+  const japaneseIsLeft = !leftIsForeign;
+  return japaneseIsLeft === (result === "win") ? "win" : "loss";
+}
+
+function japaneseResultBadge(bout: BoutWithEvent) {
+  const result = japaneseOutcome(bout);
+  return result ? resultBadge(result) : null;
 }
 
 function fighterLabel(
@@ -241,14 +282,26 @@ function boutColumns(
           label: "対戦カード",
           render: (bout) => (
             <div className="min-w-44">
-              <span className="font-semibold text-white">
+              <span
+                className={
+                  tableResult(bout) === "win"
+                    ? "font-semibold text-white"
+                    : "text-gray-300"
+                }
+              >
                 {fighterLabel(bout.jpFighter, {
                   country: bout.jpFighterCountry,
                   gym: bout.jpFighterGym,
                 })}
               </span>
               <span className="mx-1.5 text-gray-600">vs</span>
-              <span>
+              <span
+                className={
+                  tableResult(bout) === "loss"
+                    ? "font-semibold text-white"
+                    : "text-gray-300"
+                }
+              >
                 {fighterLabel(bout.opponent, {
                   country: bout.opponentCountry,
                   gym: bout.opponentGym,
@@ -261,15 +314,26 @@ function boutColumns(
         },
     {
       id: "result",
-      label: fighterView ? "結果・予定" : "結果（日本側）",
+      label: fighterView ? "結果・予定" : "勝者・結果",
       render: (bout) =>
-        resultBadge(
-          tableResult(bout, fighterView ? selectedFighter : undefined),
-        ),
+        fighterView
+          ? resultBadge(tableResult(bout, selectedFighter))
+          : boutOutcome(bout),
       sortValue: (bout) =>
         tableResult(bout, fighterView ? selectedFighter : undefined),
       align: "center",
     },
+    ...(!fighterView
+      ? [
+          {
+            id: "japanese-result",
+            label: "日本人の結果",
+            render: (bout: BoutWithEvent) => japaneseResultBadge(bout),
+            sortValue: (bout: BoutWithEvent) => japaneseOutcome(bout) ?? "",
+            align: "center" as const,
+          },
+        ]
+      : []),
     {
       id: "title",
       label: "タイトル",

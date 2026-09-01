@@ -331,8 +331,8 @@ async function loadCardSet(
   const publicScheduleUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
   const resultUrl = `https://boxmob.jp/sp/flash/index.html?sid=${entry.sid}&f=1`;
   const sources = [
-    [publicScheduleUrl, "公開スケジュール"],
     [resultUrl, "試合結果"],
+    [publicScheduleUrl, "公開スケジュール"],
   ] as const;
   let bouts: Bout[] = [];
   let detailsUrl = publicScheduleUrl;
