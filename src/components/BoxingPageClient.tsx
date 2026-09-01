@@ -5,6 +5,7 @@ import BoxingDashboard from "@/components/BoxingDashboard";
 import type { BoxingFeed } from "@/lib/boxingFeed";
 
 const CLIENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CLIENT_CACHE_KEY = "signal-board:boxing-feed:v1";
 
 interface CachedFeed {
   feed: BoxingFeed;
@@ -14,104 +15,153 @@ interface CachedFeed {
 let cachedFeed: CachedFeed | undefined;
 let inFlight: Promise<BoxingFeed> | undefined;
 
+function cacheExpiry(feed: BoxingFeed): number {
+  const fetchedAt = feed.fetchedAt ? Date.parse(feed.fetchedAt) : Number.NaN;
+  const cachedAt = Number.isFinite(fetchedAt) ? fetchedAt : Date.now();
+  return cachedAt + CLIENT_CACHE_TTL_MS;
+}
+
 function cachedValue(): BoxingFeed | undefined {
-  if (!cachedFeed || cachedFeed.expiresAt <= Date.now()) {
+  if (!cachedFeed) return undefined;
+  if (cachedFeed.expiresAt <= Date.now()) {
     cachedFeed = undefined;
     return undefined;
   }
   return cachedFeed.feed;
 }
 
-async function requestFeed(): Promise<BoxingFeed> {
-  if (!inFlight) {
-    inFlight = fetch("/api/boxing", { cache: "no-store" })
-      .then(async (response) => {
-        const body = (await response.json()) as BoxingFeed | { error?: string };
-        if (!response.ok || !("events" in body)) {
-          throw new Error(
-            "error" in body && body.error
-              ? body.error
-              : "ボクシングデータを取得できませんでした。",
-          );
-        }
-        const sourceUpdatedAt = body.updatedAt
-          ? new Date(body.updatedAt).getTime()
-          : Number.NaN;
-        cachedFeed = {
-          feed: body,
-          // APIを受け取った時点から24時間延長せず、サーバー側の更新時刻を
-          // 基準にする。これにより画面キャッシュが古さを上乗せしない。
-          expiresAt: Number.isFinite(sourceUpdatedAt)
-            ? sourceUpdatedAt + CLIENT_CACHE_TTL_MS
-            : Date.now() + CLIENT_CACHE_TTL_MS,
-        };
-        return body;
-      })
-      .finally(() => {
-        inFlight = undefined;
-      });
+function persistedValue(): BoxingFeed | undefined {
+  try {
+    const serialized = window.localStorage.getItem(CLIENT_CACHE_KEY);
+    if (!serialized) return undefined;
+
+    const parsed = JSON.parse(serialized) as Partial<CachedFeed>;
+    const valid =
+      typeof parsed.expiresAt === "number" &&
+      parsed.expiresAt > Date.now() &&
+      typeof parsed.feed === "object" &&
+      parsed.feed !== null &&
+      Array.isArray(parsed.feed.events);
+
+    if (!valid) {
+      window.localStorage.removeItem(CLIENT_CACHE_KEY);
+      return undefined;
+    }
+
+    cachedFeed = parsed as CachedFeed;
+    return cachedFeed.feed;
+  } catch {
+    return undefined;
   }
-  return inFlight;
+}
+
+function storeFeed(feed: BoxingFeed): void {
+  const next: CachedFeed = {
+    feed,
+    expiresAt: cacheExpiry(feed),
+  };
+  cachedFeed = next;
+
+  try {
+    window.localStorage.setItem(CLIENT_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    // Storage may be unavailable. The in-memory cache still prevents repeat loads.
+  }
+}
+
+async function requestFeed(): Promise<BoxingFeed> {
+  if (inFlight) return inFlight;
+
+  inFlight = (async () => {
+    const response = await fetch("/api/boxing", { cache: "no-store" });
+    const body = (await response.json()) as BoxingFeed | { error?: string };
+
+    if (!response.ok) {
+      throw new Error(
+        "error" in body && body.error
+          ? body.error
+          : "ボクシングデータを取得できませんでした。",
+      );
+    }
+
+    const feed = body as BoxingFeed;
+    storeFeed(feed);
+    return feed;
+  })();
+
+  try {
+    return await inFlight;
+  } finally {
+    inFlight = undefined;
+  }
 }
 
 function LoadingState() {
   return (
-    <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-white/10 bg-white/[0.02] text-sm text-gray-400">
-      データを読み込み中…
-    </div>
+    <main className="mx-auto min-h-screen w-full max-w-none px-4 py-8 sm:px-6 lg:px-8">
+      <div className="flex min-h-[50vh] items-center justify-center text-slate-400">
+        データを読み込み中…
+      </div>
+    </main>
   );
 }
 
 export default function BoxingPageClient() {
-  const [feed, setFeed] = useState<BoxingFeed | undefined>(() => cachedValue());
-  const [loading, setLoading] = useState(() => !cachedValue());
+  const initialFeed = cachedValue();
+  const [feed, setFeed] = useState<BoxingFeed | undefined>(initialFeed);
+  const [loading, setLoading] = useState(!initialFeed);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
+
     const load = async () => {
-      const current = cachedValue();
+      const current = cachedValue() ?? persistedValue();
       if (current) {
+        await Promise.resolve();
+        if (cancelled) return;
         setFeed(current);
         setLoading(false);
+        setError(undefined);
         return;
       }
 
-      setFeed(undefined);
       setLoading(true);
       setError(undefined);
+
       try {
-        const nextFeed = await requestFeed();
+        const next = await requestFeed();
         if (cancelled) return;
-        setFeed(nextFeed);
+        setFeed(next);
         setLoading(false);
-      } catch (nextError: unknown) {
+      } catch (loadError) {
         if (cancelled) return;
         setFeed(undefined);
         setLoading(false);
         setError(
-          nextError instanceof Error
-            ? nextError.message
+          loadError instanceof Error
+            ? loadError.message
             : "ボクシングデータを取得できませんでした。",
         );
       }
     };
 
     void load();
-    const refreshTimer = window.setInterval(() => void load(), 30_000);
-
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
     };
   }, []);
 
   if (loading) return <LoadingState />;
+
   if (!feed) {
     return (
-      <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-rose-400/20 bg-rose-400/5 px-4 text-center text-sm text-rose-200">
-        {error ?? "ボクシングデータを取得できませんでした。"}
-      </div>
+      <main className="mx-auto min-h-screen w-full max-w-none px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl rounded-xl border border-red-900/60 bg-red-950/30 p-6 text-red-200">
+          <p className="font-semibold">ボクシングデータを表示できませんでした。</p>
+          {error ? <p className="mt-2 text-sm">{error}</p> : null}
+        </div>
+      </main>
     );
   }
 

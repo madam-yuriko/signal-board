@@ -7,6 +7,7 @@ import {
   type AquariumRecordInput,
 } from "@/lib/aquariumDb";
 import { fetchAquariumProfile } from "@/lib/aquariumProfile";
+import type { AquariumDeathRecord } from "@/types/aquarium";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,16 @@ function roundedYen(form: FormData, key: string): number | undefined {
   return Number.isFinite(parsed) ? Math.round(parsed) : undefined;
 }
 
+function deathRecords(form: FormData): AquariumDeathRecord[] | undefined {
+  const values = form.getAll("deathDates")
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const reasons = form.getAll("deathReasons").map((value) => typeof value === "string" ? value.trim() : "");
+  if (!values.every((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))) return undefined;
+  return values.map((date, index) => ({ date, reason: reasons[index] || undefined })).sort((left, right) => left.date.localeCompare(right.date));
+}
+
 async function parseInput(request: Request): Promise<AquariumRecordInput | string> {
   let form: FormData;
   try {
@@ -55,6 +66,10 @@ async function parseInput(request: Request): Promise<AquariumRecordInput | strin
   if (quantity === undefined || quantity < 1) {
     return "購入数を確認してください。";
   }
+  const records = deathRecords(form);
+  if (!records || records.length > quantity || records.some((record) => record.date < acquiredDate)) {
+    return "死亡日と購入数を確認してください。";
+  }
   const unitPrice = roundedYen(form, "unitPrice");
   if (unitPrice !== undefined && unitPrice < 0) return "1匹あたりの購入価格を確認してください。";
 
@@ -69,7 +84,7 @@ async function parseInput(request: Request): Promise<AquariumRecordInput | strin
   }
 
   const wikipediaName = text(form, "wikipediaName");
-  const profile = await fetchAquariumProfile(wikipediaName ?? name);
+  const profile = await fetchAquariumProfile(wikipediaName ?? name, wikipediaName ? name : undefined);
   return {
     name,
     acquiredDate,
@@ -77,7 +92,7 @@ async function parseInput(request: Request): Promise<AquariumRecordInput | strin
     unitPrice,
     store: text(form, "store"),
     tank: text(form, "tank"),
-    deathDate: text(form, "deathDate"),
+    deathRecords: records,
     notes: text(form, "notes"),
     profile,
     wikipediaName,

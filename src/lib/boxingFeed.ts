@@ -69,6 +69,8 @@ export interface BoxingFeed {
   mode: "live";
   sourceName: string;
   updatedAt?: string;
+  /** 完成済みフィードを取得・生成した時刻。ブラウザキャッシュの期限基準。 */
+  fetchedAt?: string;
   warning?: string;
 }
 
@@ -379,7 +381,7 @@ const getCachedBaseLiveBoxingFeed = unstable_cache(
   },
 );
 
-export async function getBoxingFeed(): Promise<BoxingFeed> {
+async function buildCompleteBoxingFeed(): Promise<BoxingFeed> {
   let baseFeed: BoxingFeed;
   try {
     baseFeed = await Promise.race([
@@ -412,6 +414,7 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
     return {
       ...baseFeed,
       events,
+      fetchedAt: new Date().toISOString(),
       warning: [baseFeed.warning, unresolvedEventNameWarning(events)]
         .filter(Boolean)
         .join(" ") || undefined,
@@ -424,6 +427,30 @@ export async function getBoxingFeed(): Promise<BoxingFeed> {
     );
   }
 }
+
+// 基礎イベントだけでなく、時間のかかるBoxMobカード取得・JBC結果PDF照合まで
+// 完了した表示用データを丸ごと1日キャッシュする。タブ再訪のたびに補完処理を
+// やり直さないためのキャッシュ境界。
+const getCachedCompleteBoxingFeed = unstable_cache(
+  buildCompleteBoxingFeed,
+  ["signal-board-boxing-complete-feed-v1"],
+  {
+    revalidate: REVALIDATE_SECONDS,
+    tags: ["boxing-feed", "boxing-complete-feed"],
+  },
+);
+
+export async function getBoxingFeed(): Promise<BoxingFeed> {
+  const feed = await getCachedCompleteBoxingFeed();
+  return feed.fetchedAt
+    ? feed
+    : {
+        ...feed,
+        // fetchedAt追加前に生成された有効なキャッシュとの互換用。
+        fetchedAt: feed.updatedAt ?? new Date().toISOString(),
+      };
+}
+
 function normalizeVenue(value: string): string {
   return value
     .normalize("NFKC")

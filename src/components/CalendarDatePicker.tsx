@@ -33,16 +33,21 @@ function monthDays(month: Date) {
 export default function CalendarDatePicker({
   name,
   defaultValue,
+  value: controlledValue,
+  onChange,
   required = false,
   allowClear = false,
 }: {
   name: string;
   defaultValue?: string;
+  value?: string;
+  onChange?: (value: string) => void;
   required?: boolean;
   allowClear?: boolean;
 }) {
   const initialDate = toDate(defaultValue);
-  const [value, setValue] = useState(defaultValue ?? "");
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
+  const value = controlledValue ?? uncontrolledValue;
   const [open, setOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(
     () => initialDate ? new Date(initialDate.getFullYear(), initialDate.getMonth(), 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -65,12 +70,21 @@ export default function CalendarDatePicker({
     };
   }, []);
 
+  useEffect(() => {
+    if (controlledValue === undefined) setUncontrolledValue(defaultValue ?? "");
+  }, [controlledValue, defaultValue]);
+
+  function changeValue(nextValue: string) {
+    if (controlledValue === undefined) setUncontrolledValue(nextValue);
+    onChange?.(nextValue);
+  }
+
   function changeMonth(offset: number) {
     setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   }
 
   function select(date: Date) {
-    setValue(toValue(date));
+    changeValue(toValue(date));
     setOpen(false);
   }
 
@@ -133,7 +147,7 @@ export default function CalendarDatePicker({
           </div>
 
           <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
-            {allowClear ? <button type="button" onClick={() => { setValue(""); setOpen(false); }} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-gray-500 hover:bg-white/5 hover:text-gray-200"><X className="h-3 w-3" />未設定にする</button> : <span />}
+            {allowClear ? <button type="button" onClick={() => { changeValue(""); setOpen(false); }} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-gray-500 hover:bg-white/5 hover:text-gray-200"><X className="h-3 w-3" />未設定にする</button> : <span />}
             <button type="button" onClick={moveToToday} className="rounded px-2 py-1 text-[10px] font-semibold text-cyan-400 hover:bg-cyan-400/8">今日</button>
           </div>
         </div>

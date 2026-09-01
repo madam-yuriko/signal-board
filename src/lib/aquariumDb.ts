@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AquariumProfile, AquariumRecord } from "@/types/aquarium";
+import type { AquariumDeathRecord, AquariumProfile, AquariumRecord } from "@/types/aquarium";
 
 export interface AquariumRecordInput {
   name: string;
@@ -10,7 +10,7 @@ export interface AquariumRecordInput {
   quantity: number;
   unitPrice?: number;
   tank?: string;
-  deathDate?: string;
+  deathRecords: AquariumDeathRecord[];
   notes?: string;
   profile: AquariumProfile;
   wikipediaName?: string;
@@ -40,6 +40,7 @@ function openDatabase(): DatabaseSync {
       tank TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       end_date TEXT,
+      death_dates TEXT,
       water_temperature TEXT,
       ph TEXT,
       feeding TEXT,
@@ -66,6 +67,7 @@ function openDatabase(): DatabaseSync {
   const columns = database.prepare("PRAGMA table_info(aquarium_records)").all();
   const additions: Array<[string, string]> = [
     ["taxonomy_group", "TEXT"],
+    ["death_dates", "TEXT"],
     ["family_name", "TEXT"],
     ["profile_summary", "TEXT"],
     ["max_size", "TEXT"],
@@ -87,7 +89,28 @@ function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function decodeDeathRecords(row: Record<string, unknown>): AquariumDeathRecord[] {
+  if (typeof row.death_dates === "string") {
+    try {
+      const parsed = JSON.parse(row.death_dates) as unknown;
+      if (Array.isArray(parsed)) return parsed.flatMap((value) => {
+        if (typeof value === "string") return [{ date: value }];
+        if (value && typeof value === "object" && typeof (value as { date?: unknown }).date === "string") {
+          const record = value as { date: string; reason?: unknown };
+          return [{ date: record.date, reason: typeof record.reason === "string" && record.reason.length > 0 ? record.reason : undefined }];
+        }
+        return [];
+      });
+    } catch {
+      // Fall through to the legacy single death date.
+    }
+  }
+  const legacyDate = optionalText(row.end_date);
+  return legacyDate ? [{ date: legacyDate }] : [];
+}
+
 function decodeRow(row: Record<string, unknown>): AquariumRecord {
+  const deathRecords = decodeDeathRecords(row);
   return {
     id: Number(row.id),
     name: String(row.name),
@@ -96,7 +119,7 @@ function decodeRow(row: Record<string, unknown>): AquariumRecord {
     quantity: Number(row.quantity),
     unitPrice: typeof row.price === "number" ? row.price : undefined,
     tank: optionalText(row.tank),
-    deathDate: optionalText(row.end_date),
+    deathRecords,
     notes: optionalText(row.notes),
     taxonomyGroup: optionalText(row.taxonomy_group) ?? "未分類",
     familyName: optionalText(row.family_name),
@@ -115,7 +138,7 @@ function decodeRow(row: Record<string, unknown>): AquariumRecord {
 }
 
 const SELECT_FIELDS = `
-  id, name, scientific_name, acquired_date, store, quantity, price, tank, end_date, notes,
+  id, name, scientific_name, acquired_date, store, quantity, price, tank, end_date, death_dates, notes,
   taxonomy_group, family_name, profile_summary, max_size, wikipedia_name, source_url, external_image_url,
   photo IS NOT NULL AS has_uploaded_photo, photo_updated_at, profile_updated_at,
   created_at, updated_at
@@ -134,19 +157,21 @@ export function listAquariumRecords(): AquariumRecord[] {
 export function createAquariumRecord(input: AquariumRecordInput): AquariumRecord {
   const database = openDatabase();
   const now = new Date().toISOString();
+  const currentCount = Math.max(0, input.quantity - input.deathRecords.length);
+  const lastDeathDate = input.deathRecords.at(-1)?.date ?? null;
   try {
     const result = database.prepare(`
       INSERT INTO aquarium_records (
         name, scientific_name, kind, quantity, current_count, acquired_date, store, price, tank,
-        status, end_date, notes, photo, photo_mime, photo_updated_at,
+        status, end_date, death_dates, notes, photo, photo_mime, photo_updated_at,
         taxonomy_group, family_name, profile_summary, max_size, wikipedia_name, source_url, external_image_url,
         profile_updated_at, created_at, updated_at
-      ) VALUES (?, ?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      input.name, input.profile.scientificName ?? null, input.quantity, input.deathDate ? 0 : input.quantity,
+      input.name, input.profile.scientificName ?? null, input.quantity, currentCount,
       input.acquiredDate, input.store ?? null, input.unitPrice ?? null,
-      input.tank ?? null, input.deathDate ? "deceased" : "active",
-      input.deathDate ?? null, input.notes ?? null, input.photo ?? null,
+      input.tank ?? null, currentCount === 0 ? "deceased" : "active",
+      lastDeathDate, JSON.stringify(input.deathRecords), input.notes ?? null, input.photo ?? null,
       input.photoMime ?? null, input.photo ? now : null,
       input.profile.taxonomyGroup, input.profile.familyName ?? null, input.profile.summary, input.profile.maxSize ?? null,
       input.wikipediaName ?? null, input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
@@ -163,6 +188,8 @@ export function createAquariumRecord(input: AquariumRecordInput): AquariumRecord
 export function updateAquariumRecord(id: number, input: AquariumRecordInput): AquariumRecord | undefined {
   const database = openDatabase();
   const now = new Date().toISOString();
+  const currentCount = Math.max(0, input.quantity - input.deathRecords.length);
+  const lastDeathDate = input.deathRecords.at(-1)?.date ?? null;
   try {
     const existing = database.prepare("SELECT photo, photo_mime, photo_updated_at FROM aquarium_records WHERE id = ?").get(id);
     if (!existing) return undefined;
@@ -172,16 +199,16 @@ export function updateAquariumRecord(id: number, input: AquariumRecordInput): Aq
     database.prepare(`
       UPDATE aquarium_records SET
         name = ?, scientific_name = ?, quantity = ?, current_count = ?, acquired_date = ?, store = ?,
-        price = ?, tank = ?, status = ?, end_date = ?, notes = ?, photo = ?,
+        price = ?, tank = ?, status = ?, end_date = ?, death_dates = ?, notes = ?, photo = ?,
         photo_mime = ?, photo_updated_at = ?, taxonomy_group = ?, family_name = ?,
         profile_summary = ?, max_size = ?, wikipedia_name = ?, source_url = ?, external_image_url = ?,
         profile_updated_at = ?, updated_at = ?
       WHERE id = ?
     `).run(
-      input.name, input.profile.scientificName ?? null, input.quantity, input.deathDate ? 0 : input.quantity,
+      input.name, input.profile.scientificName ?? null, input.quantity, currentCount,
       input.acquiredDate, input.store ?? null, input.unitPrice ?? null,
-      input.tank ?? null, input.deathDate ? "deceased" : "active",
-      input.deathDate ?? null, input.notes ?? null, photo, photoMime,
+      input.tank ?? null, currentCount === 0 ? "deceased" : "active",
+      lastDeathDate, JSON.stringify(input.deathRecords), input.notes ?? null, photo, photoMime,
       photoUpdatedAt, input.profile.taxonomyGroup, input.profile.familyName ?? null, input.profile.summary, input.profile.maxSize ?? null,
       input.wikipediaName ?? null, input.profile.sourceUrl ?? null, input.profile.imageUrl ?? null,
       now, now, id,

@@ -1,3 +1,8 @@
+export interface AquariumDeathRecord {
+  date: string;
+  reason?: string;
+}
+
 export interface AquariumRecord {
   id: number;
   name: string;
@@ -6,7 +11,7 @@ export interface AquariumRecord {
   quantity: number;
   unitPrice?: number;
   tank?: string;
-  deathDate?: string;
+  deathRecords: AquariumDeathRecord[];
   notes?: string;
   taxonomyGroup: string;
   familyName?: string;
