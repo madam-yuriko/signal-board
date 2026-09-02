@@ -305,15 +305,11 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
     fetchFinishedHistory(),
   ]);
 
-  if (boxmobResult.status === "rejected") {
-    const reason = boxmobResult.reason instanceof Error
-      ? boxmobResult.reason.message
-      : String(boxmobResult.reason);
-    throw new Error(`ボクシングモバイルの予定・対戦カード取得に失敗しました: ${reason}`);
-  }
-
   const boxmobSchedule = boxmobResult.status === "fulfilled"
-    ? boxmobResult.value
+    ? boxmobResult.value.events
+    : [];
+  const failedBoxmobDetails = boxmobResult.status === "fulfilled"
+    ? boxmobResult.value.failedDetails
     : [];
   const scheduledPosts = scheduledResult.status === "fulfilled"
     ? scheduledResult.value
@@ -357,6 +353,13 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   assertNumberedSeriesIntegrity(uniqueEvents);
   const storedEvents = mergeStoredBouts(uniqueEvents);
   const unavailableSources: string[] = [];
+  if (boxmobResult.status === "rejected") {
+    unavailableSources.push("ボクシングモバイル予定・対戦カード");
+  } else if (failedBoxmobDetails.length > 0) {
+    unavailableSources.push(
+      `ボクシングモバイル対戦カード${failedBoxmobDetails.length}件`,
+    );
+  }
   if (scheduledResult.status === "rejected") unavailableSources.push("JBC予定");
   if (finishedResult.status === "rejected") unavailableSources.push("JBC結果");
   return {
@@ -402,7 +405,7 @@ async function buildCompleteBoxingFeed(): Promise<BoxingFeed> {
   }
 
   try {
-    const events = await Promise.race([
+    const enriched = await Promise.race([
       enrichEventsWithResults(baseFeed.events),
       new Promise<never>((_, reject) => {
         setTimeout(
@@ -413,16 +416,21 @@ async function buildCompleteBoxingFeed(): Promise<BoxingFeed> {
     ]);
     return {
       ...baseFeed,
-      events,
+      events: enriched.events,
       fetchedAt: new Date().toISOString(),
-      warning: [baseFeed.warning, unresolvedEventNameWarning(events)]
+      warning: [
+        baseFeed.warning,
+        enriched.warning,
+        unresolvedEventNameWarning(enriched.events),
+      ]
         .filter(Boolean)
         .join(" ") || undefined,
     };
   } catch (error) {
     console.error("Unable to enrich JBC boxing feed", error);
+    const reason = error instanceof Error ? error.message : String(error);
     throw new BoxingFeedError(
-      "対戦カード・試合結果の取得に失敗しました。不完全な保存済みデータは表示していません。時間を置いて再試行してください。",
+      `対戦カード・試合結果の取得に失敗しました。不完全な保存済みデータは表示していません。（${reason}）`,
       { cause: error },
     );
   }
@@ -713,7 +721,7 @@ function mergeKnownEvents(
 }
 async function enrichEventsWithResults(
   events: BoxingEvent[],
-): Promise<BoxingEvent[]> {
+): Promise<{ events: BoxingEvent[]; warning?: string }> {
   const baseEvents = mergeStoredBouts(events);
   const resultUrls = new Map(
     baseEvents.flatMap((event) =>
@@ -731,17 +739,20 @@ async function enrichEventsWithResults(
   );
   const cardSets = await loadBoxmobCardSets(baseEvents);
   const withCards = mergeBoxmobCards(baseEvents, cardSets);
-  return enrichEventsWithJbcResults(withCards, resultUrls);
+  return {
+    events: await enrichEventsWithJbcResults(withCards.events, resultUrls),
+    warning: withCards.warning,
+  };
 }
 
 function mergeBoxmobCards(
   events: BoxingEvent[],
   cardSets: BoxmobCardSet[],
-): BoxingEvent[] {
+): { events: BoxingEvent[]; warning?: string } {
   const assignments = assignCardSets(events, cardSets);
-  assertExactCardAssignments(events, assignments);
+  const missingExactCards = missingExactCardAssignments(events, assignments);
 
-  return events.map((event, index) => {
+  const mergedEvents = events.map((event, index) => {
     if (event.status !== "finished") return event;
     const cardSet = assignments.get(index);
     if (!cardSet) return event;
@@ -776,26 +787,30 @@ function mergeBoxmobCards(
       bouts,
     };
   });
+  return {
+    events: mergedEvents,
+    warning: missingExactCards.length > 0
+      ? `過去カードを取得できなかった興行があります（${missingExactCards.slice(0, 4).join("、")}${missingExactCards.length > 4 ? `ほか${missingExactCards.length - 4}件` : ""}）。`
+      : undefined,
+  };
 }
 
-function assertExactCardAssignments(
+function missingExactCardAssignments(
   events: BoxingEvent[],
   assignments: Map<number, BoxmobCardSet>,
-): void {
-  events.forEach((event, index) => {
+): string[] {
+  return events.flatMap((event, index) => {
     if (
       event.status !== "finished" ||
       event.series !== "U-NEXT Boxing" ||
       !event.boxmobSid
     ) {
-      return;
+      return [];
     }
     const assigned = assignments.get(index);
-    if (assigned?.sid !== event.boxmobSid || assigned.bouts.length === 0) {
-      throw new Error(
-        `${event.name} の対戦カード（BoxMob SID ${event.boxmobSid}）を取得できませんでした`,
-      );
-    }
+    return assigned?.sid === event.boxmobSid && assigned.bouts.length > 0
+      ? []
+      : [event.name];
   });
 }
 

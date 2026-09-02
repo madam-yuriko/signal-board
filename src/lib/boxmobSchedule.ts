@@ -8,7 +8,9 @@ import { boutTitlesFromText } from "@/lib/boutTitles";
 const SCHEDULE_URL = "https://boxmob.jp/sp/schedule.html";
 const DETAIL_URL = "https://boxmob.jp/sp/schedule/index.html";
 const REVALIDATE_SECONDS = 60 * 60 * 24;
-const FETCH_CONCURRENCY = 24;
+// 詳細ページを一気に開きすぎると取得元が応答しきれず、一部が4秒で
+// タイムアウトする。日次更新なので並列数より完走率を優先する。
+const FETCH_CONCURRENCY = 8;
 const SCHEDULE_LIST_TIMEOUT_MS = 8_000;
 const SCHEDULE_DETAIL_TIMEOUT_MS = 4_000;
 const HISTORY_DETAIL_TIMEOUT_MS = 5_000;
@@ -29,6 +31,15 @@ export interface BoxmobCardSet {
   name: string;
   detailsUrl: string;
   bouts: Bout[];
+}
+
+export interface BoxmobScheduleFetchResult {
+  events: BoxingEvent[];
+  failedDetails: Array<{
+    sid: string;
+    name: string;
+    reason: string;
+  }>;
 }
 
 const NAMED_ENTITIES: Record<string, string> = {
@@ -415,7 +426,7 @@ export async function fetchBoxmobHistoryCards(
   return results.filter((result) => result.bouts.length > 0 || result.name.trim().length > 0);
 }
 
-export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
+export async function fetchBoxmobSchedule(): Promise<BoxmobScheduleFetchResult> {
   const now = new Date();
   const entries = parseScheduleList(
     await fetchShiftJis(SCHEDULE_URL, SCHEDULE_LIST_TIMEOUT_MS, true),
@@ -443,8 +454,9 @@ export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
   }));
   // カード取得対象をシリーズ名で絞ると、THE BATTLEなどの一般興行が
   // 対象外になり、詳細ページにカードがあるのに空表示になる。
-  // 同時実行数は維持したまま、予定一覧に載っている全興行を取得する。
+  // 並列数を抑えつつ、予定一覧に載っている全興行を取得する。
   const cardEntries = entries;
+  const failedDetails: BoxmobScheduleFetchResult["failedDetails"] = [];
   let cursor = 0;
   await Promise.all(
     Array.from({ length: Math.min(FETCH_CONCURRENCY, cardEntries.length) }, async () => {
@@ -452,11 +464,28 @@ export async function fetchBoxmobSchedule(): Promise<BoxingEvent[]> {
         const index = cursor;
         cursor += 1;
         const entry = cardEntries[index];
-        const event = await loadEvent(entry, now, "scheduled", SCHEDULE_DETAIL_TIMEOUT_MS);
-        const originalIndex = entries.findIndex((candidate) => candidate.sid === entry.sid);
-        if (originalIndex !== -1) events[originalIndex] = event;
+        try {
+          const event = await loadEvent(
+            entry,
+            now,
+            "scheduled",
+            SCHEDULE_DETAIL_TIMEOUT_MS,
+          );
+          const originalIndex = entries.findIndex(
+            (candidate) => candidate.sid === entry.sid,
+          );
+          if (originalIndex !== -1) events[originalIndex] = event;
+        } catch (error) {
+          // 一覧ページから日付・興行名・会場は取得済み。詳細1件の失敗で
+          // 全予定を503にせず、この興行だけカード未取得として明示する。
+          failedDetails.push({
+            sid: entry.sid,
+            name: entry.name,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }),
   );
-  return events;
+  return { events, failedDetails };
 }
