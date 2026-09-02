@@ -1,6 +1,4 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { openSignalBoardDatabase } from "@/lib/signalBoardDb";
 import type { AquariumDeathRecord, AquariumProfile, AquariumRecord } from "@/types/aquarium";
 
 export interface AquariumRecordInput {
@@ -19,12 +17,8 @@ export interface AquariumRecordInput {
   removePhoto?: boolean;
 }
 
-const DATABASE_DIRECTORY = path.join(process.cwd(), ".signal-board-data");
-const DATABASE_PATH = path.join(DATABASE_DIRECTORY, "signal-board.sqlite");
-
-function openDatabase(): DatabaseSync {
-  mkdirSync(DATABASE_DIRECTORY, { recursive: true });
-  const database = new DatabaseSync(DATABASE_PATH);
+function openDatabase() {
+  const database = openSignalBoardDatabase();
   database.exec(`
     CREATE TABLE IF NOT EXISTS aquarium_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

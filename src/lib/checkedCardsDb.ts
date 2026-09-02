@@ -1,11 +1,9 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
   isCheckedCardItemForScope,
   type CheckedCardItem,
   type CheckedCardScope,
 } from "@/lib/checkedCards";
+import { openSignalBoardDatabase } from "@/lib/signalBoardDb";
 
 export interface StoredCheckedCard {
   key: string;
@@ -14,12 +12,8 @@ export interface StoredCheckedCard {
   updatedAt: string;
 }
 
-const DATABASE_DIRECTORY = path.join(process.cwd(), ".signal-board-data");
-const DATABASE_PATH = path.join(DATABASE_DIRECTORY, "signal-board.sqlite");
-
-function openDatabase(): DatabaseSync {
-  mkdirSync(DATABASE_DIRECTORY, { recursive: true });
-  const database = new DatabaseSync(DATABASE_PATH);
+function openDatabase() {
+  const database = openSignalBoardDatabase();
   database.exec(`
     CREATE TABLE IF NOT EXISTS checked_cards (
       scope TEXT NOT NULL,

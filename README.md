@@ -10,6 +10,7 @@ Next.js 16 (App Router) + React 19 + Tailwind CSS v4 + TypeScript で構築し�
 - CPU&GPU&APU（`/`）: 1ボード = 1製品。CPU・GPU・APUのカテゴリ、メーカー、用途で絞り込み
 - 再開発（`/redevelopment`）: 1ボード = 1再開発案件。状態、種類、地域で絞り込み
 - 映画（`/movies`）: 1ボード = 1作品。公開状態、ジャンル、地域で絞り込み
+- 飲食店（`/restaurants`）: Tabelog Insightでチェックした行きたい店をSQLite経由で自動同期
 - ボクシング（`/boxing`）: 1ボード = 1興行。興行シリーズ、開催状態、国内外で絞り込み
 - 災害（`/disasters`）: 1ボード = 1災害事象。警戒状態、種類、地域で絞り込み
 - 世界戦一覧（`/world-titles`）: ボクシング内の補助ビュー

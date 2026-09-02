@@ -1,6 +1,4 @@
-import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { openSignalBoardDatabase } from "@/lib/signalBoardDb";
 import type { TopicPrice, TopicReleaseDate } from "@/types/topics";
 
 export interface IndieGameTrackingEvidence {
@@ -34,14 +32,11 @@ export interface IndieGameTrackingUpdate {
   evidence: IndieGameTrackingEvidence;
 }
 
-const DATABASE_DIRECTORY = path.join(process.cwd(), ".signal-board-data");
-const DATABASE_PATH = path.join(DATABASE_DIRECTORY, "signal-board.sqlite");
 const PLATFORM_ORDER = ["Steam", "PS", "Switch", "XBOX", "その他"] as const;
 const RELEASE_PRIORITY = ["PS", "Switch", "XBOX", "Steam", "その他"] as const;
 
-function openDatabase(): DatabaseSync {
-  mkdirSync(DATABASE_DIRECTORY, { recursive: true });
-  const database = new DatabaseSync(DATABASE_PATH);
+function openDatabase() {
+  const database = openSignalBoardDatabase();
   database.exec(`
     CREATE TABLE IF NOT EXISTS indie_game_tracking (
       title_key TEXT PRIMARY KEY,
