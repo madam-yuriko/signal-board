@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import BoxingDashboard from "@/components/BoxingDashboard";
 import type { BoxingFeed } from "@/lib/boxingFeed";
+import type { FighterProfile } from "@/lib/fighterProfile";
+import type { WikipediaFighterRecord } from "@/lib/fighterRecord";
 
 const CLIENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 // 取得ロジックを変えた時はキーを上げる。上げないと、既存の利用者は
 // 最大24時間、古い（カードが欠けた）フィードを見続けることになる。
-const CLIENT_CACHE_KEY = "signal-board:boxing-feed:v2";
+const CLIENT_CACHE_KEY = "signal-board:boxing-feed:v7";
 
 interface CachedFeed {
   feed: BoxingFeed;
@@ -117,6 +119,37 @@ export default function BoxingPageClient() {
   const [feed, setFeed] = useState<BoxingFeed | undefined>(initialFeed);
   const [loading, setLoading] = useState(!initialFeed);
   const [error, setError] = useState<string>();
+  const handleFighterDataChange = useCallback(
+    (
+      profiles: FighterProfile[],
+      records: Record<string, WikipediaFighterRecord>,
+    ) => {
+      if (profiles.length === 0 && Object.keys(records).length === 0) return;
+      setFeed((current) => {
+        if (!current) return current;
+        const profilesByKey = new Map(
+          (current.fighterProfiles ?? []).map((profile) => [
+            profile.fighterKey,
+            profile,
+          ]),
+        );
+        for (const profile of profiles) {
+          profilesByKey.set(profile.fighterKey, profile);
+        }
+        const next = {
+          ...current,
+          fighterProfiles: [...profilesByKey.values()],
+          fighterRecords: {
+            ...(current.fighterRecords ?? {}),
+            ...records,
+          },
+        };
+        storeFeed(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +207,9 @@ export default function BoxingPageClient() {
   return (
     <BoxingDashboard
       events={feed.events}
+      profiles={feed.fighterProfiles ?? []}
+      records={feed.fighterRecords ?? {}}
+      onFighterDataChange={handleFighterDataChange}
       sourceName={feed.sourceName}
       updatedAt={feed.updatedAt}
       warning={feed.warning}

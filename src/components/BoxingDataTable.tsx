@@ -1,8 +1,9 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import type { BoutResult, BoxingEvent } from "@/types";
 import type { BoutWithEvent } from "@/lib/filters";
-import { formatShortDate, isEventUpcoming } from "@/lib/format";
+import { formatShortDate, isEventUpcoming, weightRank } from "@/lib/format";
 import DataTable, { type DataTableColumn } from "@/components/DataTable";
 import BoutTitleBadges from "@/components/BoutTitleBadges";
 import { isWorldTitle, titlesForBout } from "@/lib/boutTitles";
@@ -13,10 +14,102 @@ import {
   normalizeFighterName,
   sameFighterName,
 } from "@/lib/fighterInfo";
-import { fighterBoutResult } from "@/lib/fighterRecord";
+import {
+  fighterBoutResult,
+  formatRecordLine,
+  type FighterRecordStats,
+} from "@/lib/fighterRecord";
+import { ageOnDate, type FighterProfile } from "@/lib/fighterProfile";
 
-export type BoxingTableView = "events" | "bouts" | "world" | "fighter";
+export type BoxingTableView =
+  | "events"
+  | "bouts"
+  | "world"
+  | "fighters"
+  | "fighter";
 type TableBoutResult = BoutResult | "unknown";
+
+export interface ManagedFighter {
+  id: string;
+  name: string;
+  gym?: string;
+  country?: string;
+  weightClasses: string[];
+  boutCount: number;
+  record: FighterRecordStats;
+  lastBoutDate?: string;
+  nextBoutDate?: string;
+}
+
+export function managedFighterCountry(fighter: ManagedFighter): string {
+  // 海外国名は取り込み時に country へ移している。残ったJBC登録ジム所属者は日本扱い。
+  return fighter.country ?? (fighter.gym ? "日本" : "不明");
+}
+
+export function managedFighterAffiliation(fighter: ManagedFighter): string {
+  return fighter.gym ?? "所属不明";
+}
+
+function isContractWeightClass(weightClass: string): boolean {
+  return /契約|キャッチ(?:ウェ|ウエ)イト/i.test(weightClass);
+}
+
+function compareFightersByPriority(
+  left: ManagedFighter,
+  right: ManagedFighter,
+): number {
+  const boutCount = right.record.total - left.record.total;
+  if (boutCount !== 0) return boutCount;
+
+  const wins = right.record.win - left.record.win;
+  if (wins !== 0) return wins;
+
+  return left.record.loss - right.record.loss;
+}
+
+function emptyRecord(): FighterRecordStats {
+  return {
+    total: 0,
+    win: 0,
+    ko: 0,
+    loss: 0,
+    draw: 0,
+    noContest: 0,
+    scheduled: 0,
+    unknown: 0,
+  };
+}
+
+function addBoutToRecord(
+  record: FighterRecordStats,
+  bout: BoutWithEvent,
+  fighter: string,
+) {
+  const result = fighterBoutResult(bout, fighter);
+  if (result === "cancelled") return;
+  if (result === "scheduled") {
+    if (isEventUpcoming(bout.event)) record.scheduled += 1;
+    else record.unknown += 1;
+    return;
+  }
+
+  record.total += 1;
+  if (result === "win") {
+    record.win += 1;
+    if (
+      !/判定/.test(bout.method ?? "") &&
+      /(?:^|[^A-Za-z])T?KO/i.test(bout.method ?? "")
+    ) {
+      record.ko += 1;
+    }
+  } else if (result === "loss") {
+    record.loss += 1;
+  } else if (result === "draw") {
+    record.draw += 1;
+  } else {
+    record.noContest += 1;
+  }
+}
 
 export function availableFighters(bouts: BoutWithEvent[]): string[] {
   const names = new Map<string, string>();
@@ -26,6 +119,96 @@ export function availableFighters(bouts: BoutWithEvent[]): string[] {
     if (!names.has(key)) names.set(key, name);
   }
   return [...names.values()].sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+/** アプリに収録した対戦カードから重複のない選手台帳を作る。 */
+export function managedFighters(bouts: BoutWithEvent[]): ManagedFighter[] {
+  const fighters = new Map<
+    string,
+    Omit<ManagedFighter, "weightClasses" | "boutCount"> & {
+      weightClasses: Set<string>;
+      boutIds: Set<string>;
+    }
+  >();
+
+  const addFighter = (
+    name: string,
+    info: { gym?: string; country?: string },
+    bout: BoutWithEvent,
+  ) => {
+    if (!isSelectableFighter(name)) return;
+    const id = normalizeFighterName(name);
+    if (!id) return;
+    const resolvedInfo = fighterInfo(name, info);
+    const existing = fighters.get(id) ?? {
+      id,
+      name,
+      gym: resolvedInfo.gym,
+      country: resolvedInfo.country,
+      weightClasses: new Set<string>(),
+      boutIds: new Set<string>(),
+      record: emptyRecord(),
+    };
+    existing.gym ??= resolvedInfo.gym;
+    existing.country ??= resolvedInfo.country;
+    if (bout.weightClass && !isContractWeightClass(bout.weightClass)) {
+      existing.weightClasses.add(bout.weightClass);
+    }
+    const boutId = `${bout.event.id}:${bout.id}`;
+    if (!existing.boutIds.has(boutId)) {
+      existing.boutIds.add(boutId);
+      addBoutToRecord(existing.record, bout, name);
+    }
+    if (isEventUpcoming(bout.event)) {
+      if (!existing.nextBoutDate || bout.event.date < existing.nextBoutDate) {
+        existing.nextBoutDate = bout.event.date;
+      }
+    } else if (!existing.lastBoutDate || bout.event.date > existing.lastBoutDate) {
+      existing.lastBoutDate = bout.event.date;
+    }
+    fighters.set(id, existing);
+  };
+
+  for (const bout of bouts) {
+    addFighter(
+      bout.jpFighter,
+      { gym: bout.jpFighterGym, country: bout.jpFighterCountry },
+      bout,
+    );
+    addFighter(
+      bout.opponent,
+      { gym: bout.opponentGym, country: bout.opponentCountry },
+      bout,
+    );
+  }
+
+  return [...fighters.values()]
+    .map((fighter) => ({
+      id: fighter.id,
+      name: fighter.name,
+      gym: fighter.gym,
+      country: fighter.country,
+      weightClasses: [...fighter.weightClasses].sort(
+        (left, right) => weightRank(left) - weightRank(right),
+      ),
+      boutCount: fighter.boutIds.size,
+      record: fighter.record,
+      lastBoutDate: fighter.lastBoutDate,
+      nextBoutDate: fighter.nextBoutDate,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "ja"));
+}
+
+export function availableFighterWeightClasses(
+  fighters: ManagedFighter[],
+): string[] {
+  return [
+    ...new Set(
+      fighters
+        .flatMap((fighter) => fighter.weightClasses)
+        .filter((weightClass) => weightClass.endsWith("級")),
+    ),
+  ].sort((left, right) => weightRank(left) - weightRank(right));
 }
 
 export function isWorldTitleBout(bout: BoutWithEvent): boolean {
@@ -244,6 +427,161 @@ function eventColumns(): DataTableColumn<BoxingEvent>[] {
   ];
 }
 
+function fighterColumns(
+  onSelectFighter: (fighter: string) => void,
+  profiles: Record<string, FighterProfile>,
+  wikipediaUrls: Record<string, string | null | undefined>,
+): DataTableColumn<ManagedFighter>[] {
+  return [
+    {
+      id: "name",
+      label: "選手名",
+      render: (fighter) => (
+        <button
+          type="button"
+          onClick={() => onSelectFighter(fighter.name)}
+          className="cursor-pointer text-left font-semibold text-white underline decoration-white/20 underline-offset-2 transition-colors hover:text-red-200 hover:decoration-red-300/60"
+          aria-label={`${fighter.name}の選手別結果を表示`}
+        >
+          {fighter.name}
+        </button>
+      ),
+      sortValue: (fighter) => fighter.name,
+      primary: true,
+      className: "min-w-40",
+    },
+    {
+      id: "affiliation",
+      label: "所属",
+      render: (fighter) => fighter.gym ?? "—",
+      sortValue: (fighter) => managedFighterAffiliation(fighter),
+      className: "min-w-28",
+    },
+    {
+      id: "wikipedia",
+      label: "Wikipedia",
+      render: (fighter) => {
+        const url = wikipediaUrls[fighter.id] ?? profiles[fighter.id]?.sourceUrl;
+        return url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-semibold text-sky-300 hover:text-sky-100"
+            aria-label={`${fighter.name}のWikipedia記事を開く`}
+            title="Wikipedia記事を開く"
+          >
+            記事
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null;
+      },
+      sortValue: (fighter) =>
+        (wikipediaUrls[fighter.id] ?? profiles[fighter.id]?.sourceUrl)
+          ? 1
+          : 0,
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "country",
+      label: "国籍",
+      render: managedFighterCountry,
+      sortValue: managedFighterCountry,
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "birthplace",
+      label: "出身地",
+      render: (fighter) => profiles[fighter.id]?.birthplacePrefecture ?? "",
+      sortValue: (fighter) => profiles[fighter.id]?.birthplacePrefecture,
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "birth-date",
+      label: "生年月日",
+      render: (fighter) => profiles[fighter.id]?.birthDate ?? "",
+      sortValue: (fighter) => profiles[fighter.id]?.birthDate,
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "age",
+      label: "年齢",
+      render: (fighter) => {
+        const age = ageOnDate(profiles[fighter.id]?.birthDate);
+        return age === undefined ? "" : `${age}歳`;
+      },
+      sortValue: (fighter) => ageOnDate(profiles[fighter.id]?.birthDate),
+      align: "right",
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "stance",
+      label: "構え",
+      render: (fighter) => profiles[fighter.id]?.stance ?? "",
+      sortValue: (fighter) => profiles[fighter.id]?.stance,
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "weights",
+      label: "階級",
+      render: (fighter) => (
+        <div className="flex flex-wrap gap-1">
+          {fighter.weightClasses.map((weightClass) => (
+            <span
+              key={weightClass}
+              className="rounded border border-sky-400/20 bg-sky-400/5 px-1.5 py-0.5 text-[10px] text-sky-200"
+            >
+              {weightClass}
+            </span>
+          ))}
+        </div>
+      ),
+      sortValue: (fighter) =>
+        Math.min(...fighter.weightClasses.map(weightRank)),
+      className: "min-w-40",
+    },
+    {
+      id: "record",
+      label: "収録戦績",
+      render: (fighter) => (
+        <div className="whitespace-nowrap">
+          {fighter.record.total > 0 ? formatRecordLine(fighter.record) : "—"}
+          {fighter.record.unknown > 0 && (
+            <div className="text-[10px] text-gray-600">
+              結果未取得 {fighter.record.unknown}試合
+            </div>
+          )}
+        </div>
+      ),
+      sortValue: (fighter) => fighter.record.win,
+      className: "min-w-40",
+    },
+    {
+      id: "bouts",
+      label: "収録試合",
+      render: (fighter) => `${fighter.boutCount}試合`,
+      sortValue: (fighter) => fighter.boutCount,
+      align: "right",
+    },
+    {
+      id: "last",
+      label: "最終試合",
+      render: (fighter) =>
+        fighter.lastBoutDate ? formatShortDate(fighter.lastBoutDate) : "—",
+      sortValue: (fighter) => fighter.lastBoutDate,
+      className: "whitespace-nowrap",
+    },
+    {
+      id: "next",
+      label: "次回予定",
+      render: (fighter) =>
+        fighter.nextBoutDate ? formatShortDate(fighter.nextBoutDate) : "—",
+      sortValue: (fighter) => fighter.nextBoutDate,
+      className: "whitespace-nowrap",
+    },
+  ];
+}
+
 function boutColumns(
   view: BoxingTableView,
   selectedFighter: string,
@@ -403,14 +741,22 @@ export default function BoxingDataTable({
   view,
   events,
   bouts,
+  fighters,
+  fighterProfiles,
+  wikipediaUrls,
   selectedFighter,
   onSelectFighter,
+  onFighterPageChange,
 }: {
   view: BoxingTableView;
   events: BoxingEvent[];
   bouts: BoutWithEvent[];
+  fighters: ManagedFighter[];
+  fighterProfiles: Record<string, FighterProfile>;
+  wikipediaUrls: Record<string, string | null | undefined>;
   selectedFighter: string;
   onSelectFighter: (fighter: string) => void;
+  onFighterPageChange?: (fighters: ManagedFighter[]) => void;
 }) {
   if (view === "events") {
     return (
@@ -420,6 +766,22 @@ export default function BoxingDataTable({
         columns={eventColumns()}
         rowKey={(event) => event.id}
         defaultSort={{ columnId: "date", direction: "desc" }}
+      />
+    );
+  }
+
+  if (view === "fighters") {
+    return (
+      <DataTable
+        key={`boxing-fighters-${fighters.length}-${fighters[0]?.id ?? "empty"}-${fighters.at(-1)?.id ?? "empty"}`}
+        rows={fighters}
+        columns={fighterColumns(onSelectFighter, fighterProfiles, wikipediaUrls)}
+        rowKey={(fighter) => fighter.id}
+        defaultSort={{ columnId: "record", direction: "desc" }}
+        defaultCompareRows={compareFightersByPriority}
+        emptyMessage="選択した階級に一致する選手がいません。"
+        pageSize={20}
+        onPageChange={(_, pageFighters) => onFighterPageChange?.(pageFighters)}
       />
     );
   }

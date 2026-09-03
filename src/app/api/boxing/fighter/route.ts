@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { FighterRecordResponse } from "@/lib/fighterRecord";
-import { fetchWikipediaFighterRecord } from "@/lib/wikipediaFighterRecord";
+import { upsertFighterProfile } from "@/lib/fighterProfilesDb";
+import { upsertFighterRecord } from "@/lib/fighterRecordsDb";
+import { fetchWikipediaFighterLookup } from "@/lib/wikipediaFighterRecord";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +18,18 @@ export async function GET(request: Request) {
     );
   }
 
-  const record = await fetchWikipediaFighterRecord(name);
-  const body: FighterRecordResponse = { found: Boolean(record), record };
+  const lookup = await fetchWikipediaFighterLookup(name);
+  const profile = lookup?.profile
+    ? upsertFighterProfile(lookup.profile)
+    : undefined;
+  const persistedRecord = lookup?.record
+    ? upsertFighterRecord(lookup.record)
+    : undefined;
+  const body: FighterRecordResponse = {
+    found: Boolean(lookup?.record),
+    record: persistedRecord ?? lookup?.record,
+    profile,
+  };
 
   return NextResponse.json(body, {
     headers: {

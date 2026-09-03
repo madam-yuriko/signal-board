@@ -3,6 +3,7 @@ import type { BoutWithEvent } from "@/lib/filters";
 import { isEventUpcoming } from "@/lib/format";
 import { normalizeFighterName, sameFighterName } from "@/lib/fighterInfo";
 import { organizationsFromText } from "@/lib/organizations";
+import type { FighterProfile } from "@/lib/fighterProfile";
 
 /** Wikipediaの戦績表から取り出した1試合。選手本人から見た結果を持つ。 */
 export interface FighterRecordBout {
@@ -30,11 +31,15 @@ export interface WikipediaFighterRecord {
   pageTitle: string;
   pageUrl: string;
   bouts: FighterRecordBout[];
+  /** DBに保存したWikipedia戦績の取得日時。 */
+  updatedAt?: string;
 }
 
 export interface FighterRecordResponse {
   found: boolean;
   record?: WikipediaFighterRecord;
+  /** Wikipediaからプロフィール項目を抽出・保存できた場合のみ入る。 */
+  profile?: FighterProfile;
 }
 
 /** 一覧の元データがWikipediaか、本アプリの収録データか。 */

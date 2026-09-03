@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+} from "lucide-react";
 
 type SortValue = string | number | null | undefined;
 
@@ -26,7 +32,10 @@ interface Props<T> {
   columns: DataTableColumn<T>[];
   rowKey: (row: T) => string;
   defaultSort?: DataTableSort;
+  defaultCompareRows?: (left: T, right: T) => number;
   emptyMessage?: string;
+  pageSize?: number;
+  onPageChange?: (page: number, rows: T[]) => void;
 }
 
 function compareValues(a: SortValue, b: SortValue): number {
@@ -47,17 +56,29 @@ export default function DataTable<T>({
   columns,
   rowKey,
   defaultSort,
+  defaultCompareRows,
   emptyMessage = "表示できるデータがありません。",
+  pageSize,
+  onPageChange,
 }: Props<T>) {
   const [sort, setSort] = useState<DataTableSort | undefined>(defaultSort);
+  const [requestedPage, setRequestedPage] = useState(0);
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
     const column = columns.find((item) => item.id === sort.columnId);
     if (!column?.sortValue) return rows;
+    const usingDefaultComparator =
+      Boolean(defaultCompareRows && defaultSort) &&
+      sort.columnId === defaultSort?.columnId &&
+      sort.direction === defaultSort?.direction;
     return rows
       .map((row, index) => ({ row, index }))
       .sort((a, b) => {
+        if (usingDefaultComparator && defaultCompareRows) {
+          const compared = defaultCompareRows(a.row, b.row);
+          return compared === 0 ? a.index - b.index : compared;
+        }
         const aValue = column.sortValue?.(a.row);
         const bValue = column.sortValue?.(b.row);
         const aEmpty = aValue === null || aValue === undefined || aValue === "";
@@ -68,10 +89,21 @@ export default function DataTable<T>({
         return sort.direction === "asc" ? compared : -compared;
       })
       .map(({ row }) => row);
-  }, [columns, rows, sort]);
+  }, [columns, defaultCompareRows, defaultSort, rows, sort]);
+
+  const pageCount = pageSize ? Math.max(1, Math.ceil(sortedRows.length / pageSize)) : 1;
+  const currentPage = Math.min(requestedPage, pageCount - 1);
+  const visibleRows = pageSize
+    ? sortedRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+    : sortedRows;
+  const firstVisibleRow = pageSize ? currentPage * pageSize + 1 : 1;
+  const lastVisibleRow = pageSize
+    ? Math.min((currentPage + 1) * pageSize, sortedRows.length)
+    : sortedRows.length;
 
   function toggleSort(column: DataTableColumn<T>) {
     if (!column.sortValue) return;
+    setRequestedPage(0);
     setSort((current) => {
       if (!current || current.columnId !== column.id) {
         return { columnId: column.id, direction: "asc" };
@@ -81,6 +113,52 @@ export default function DataTable<T>({
         direction: current.direction === "asc" ? "desc" : "asc",
       };
     });
+  }
+
+  function changePage(nextPage: number) {
+    const boundedPage = Math.max(0, Math.min(pageCount - 1, nextPage));
+    setRequestedPage(boundedPage);
+    if (onPageChange && pageSize) {
+      onPageChange(
+        boundedPage,
+        sortedRows.slice(boundedPage * pageSize, (boundedPage + 1) * pageSize),
+      );
+    }
+  }
+
+  function paginationControls(className: string) {
+    if (!pageSize || pageCount <= 1) return null;
+    return (
+      <div className={className}>
+        <span>
+          {firstVisibleRow.toLocaleString("ja-JP")}–
+          {lastVisibleRow.toLocaleString("ja-JP")} / {rows.length.toLocaleString("ja-JP")}件
+        </span>
+        <div className="flex items-center gap-2">
+          <span>
+            {currentPage + 1} / {pageCount}ページ
+          </span>
+          <button
+            type="button"
+            onClick={() => changePage(currentPage - 1)}
+            disabled={currentPage === 0}
+            className="rounded border border-white/10 p-1 text-gray-300 transition-colors hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            aria-label="前のページ"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => changePage(currentPage + 1)}
+            disabled={currentPage === pageCount - 1}
+            className="rounded border border-white/10 p-1 text-gray-300 transition-colors hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            aria-label="次のページ"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (rows.length === 0) {
@@ -93,6 +171,9 @@ export default function DataTable<T>({
 
   return (
     <div className="glass-card overflow-hidden rounded-lg">
+      {paginationControls(
+        "flex items-center justify-between gap-3 border-b border-white/5 px-3 py-2 text-[11px] text-gray-500",
+      )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-left text-xs">
           <thead className="border-b border-white/10 bg-white/[0.04] text-[10px] font-semibold text-gray-400">
@@ -147,7 +228,7 @@ export default function DataTable<T>({
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
-            {sortedRows.map((row) => (
+            {visibleRows.map((row) => (
               <tr key={rowKey(row)} className="group/row hover:bg-white/[0.04]">
                 {columns.map((column) => {
                   const alignment =
@@ -176,6 +257,9 @@ export default function DataTable<T>({
           </tbody>
         </table>
       </div>
+      {paginationControls(
+        "flex items-center justify-between gap-3 border-t border-white/5 px-3 py-2 text-[11px] text-gray-500",
+      )}
       <div className="border-t border-white/5 px-3 py-1.5 text-right text-[10px] text-gray-600 sm:hidden">
         横にスクロールして全項目を表示
       </div>

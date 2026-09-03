@@ -20,11 +20,11 @@ import FontScale from "@/components/FontScale";
 const NAV = [
   { href: "/", label: "CPU&GPU&APU", icon: Cpu },
   { href: "/redevelopment", label: "再開発", icon: Building2 },
+  { href: "/boxing", label: "ボクシング", icon: Swords },
   { href: "/movies", label: "映画", icon: Film },
   { href: "/indie-games", label: "インディーゲーム", icon: Gamepad2 },
   { href: "/restaurants", label: "飲食店", icon: Utensils },
   { href: "/aquarium", label: "アクアリウム", icon: Fish },
-  { href: "/boxing", label: "ボクシング", icon: Swords },
   { href: "/disasters", label: "災害", icon: TriangleAlert },
 ];
 

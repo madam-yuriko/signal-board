@@ -10,6 +10,10 @@ import {
   type BoxmobCardSet,
 } from "@/lib/boxmobSchedule";
 import { parseJbcResultPdf } from "@/lib/jbcResultPdf";
+import { listFighterProfiles } from "@/lib/fighterProfilesDb";
+import type { FighterProfile } from "@/lib/fighterProfile";
+import { listFighterRecords } from "@/lib/fighterRecordsDb";
+import type { WikipediaFighterRecord } from "@/lib/fighterRecord";
 import type { BoxingEvent } from "@/types";
 
 const JBC_API = "https://jbc.or.jp/wp-json/wp/v2/posts";
@@ -72,6 +76,10 @@ interface JbcMedia {
 
 export interface BoxingFeed {
   events: BoxingEvent[];
+  /** Wikipediaから確認・保存済みの選手プロフィール。 */
+  fighterProfiles?: FighterProfile[];
+  /** Wikipediaから確認・保存済みの選手戦績。 */
+  fighterRecords?: Record<string, WikipediaFighterRecord>;
   mode: "live";
   sourceName: string;
   updatedAt?: string;
@@ -507,13 +515,20 @@ const getCachedCompleteBoxingFeed = unstable_cache(
 
 export async function getBoxingFeed(): Promise<BoxingFeed> {
   const feed = await getCachedCompleteBoxingFeed();
-  return feed.fetchedAt
+  const compatibleFeed = feed.fetchedAt
     ? feed
     : {
         ...feed,
         // fetchedAt追加前に生成された有効なキャッシュとの互換用。
         fetchedAt: feed.updatedAt ?? new Date().toISOString(),
       };
+  // プロフィールは選手詳細を開いた時点で別途保存される。興行フィードを
+  // 更新し直さなくても、常に最新の選手DBを返す。
+  return {
+    ...compatibleFeed,
+    fighterProfiles: listFighterProfiles(),
+    fighterRecords: listFighterRecords(),
+  };
 }
 
 function normalizeVenue(value: string): string {

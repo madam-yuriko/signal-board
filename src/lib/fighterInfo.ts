@@ -6,6 +6,8 @@ export interface FighterInfo {
 }
 
 const COUNTRY_ALIASES: Record<string, string> = {
+  "日本": "日本",
+  "日": "日本",
   "豪": "オーストラリア",
   "豪州": "オーストラリア",
   "オーストラリア": "オーストラリア",
@@ -49,6 +51,33 @@ const COUNTRY_ALIASES: Record<string, string> = {
   "加": "カナダ",
   "インドネシア": "インドネシア",
   "尼": "インドネシア",
+  "インド": "インド",
+  "キルギス": "キルギス",
+  "キルギスタン": "キルギス",
+  "ミャンマー": "ミャンマー",
+  "コスタリカ": "コスタリカ",
+  "モンゴル": "モンゴル",
+  "ベネズエラ": "ベネズエラ",
+  "パナマ": "パナマ",
+  "コロンビア": "コロンビア",
+  "エクアドル": "エクアドル",
+  "ペルー": "ペルー",
+  "チリ": "チリ",
+  "ガーナ": "ガーナ",
+  "ケニア": "ケニア",
+  "タンザニア": "タンザニア",
+  "ウガンダ": "ウガンダ",
+  "ナイジェリア": "ナイジェリア",
+  "南スーダン": "南スーダン",
+  "バングラデシュ": "バングラデシュ",
+  "ネパール": "ネパール",
+  "スリランカ": "スリランカ",
+  "パキスタン": "パキスタン",
+  "カンボジア": "カンボジア",
+  "ベトナム": "ベトナム",
+  "ラオス": "ラオス",
+  "マレーシア": "マレーシア",
+  "シンガポール": "シンガポール",
   "ドミニカ": "ドミニカ共和国",
   "ドミニカ共和国": "ドミニカ共和国",
 };
@@ -96,9 +125,15 @@ export function fighterInfo(
   explicit: FighterInfo = {},
 ): FighterInfo {
   const known = KNOWN_FIGHTER_INFO.get(normalizeFighterName(name));
+  // ボクモバの括弧内は国内選手ならジム、海外選手なら国・地域が入る。
+  // 過去に国名辞書へ無かった値が gym として保存されていても、表示時に再判定する。
+  const affiliation = explicit.country
+    ? { gym: explicit.gym }
+    : infoFromAffiliation(explicit.gym);
   return {
-    gym: explicit.gym ?? known?.gym,
-    country: explicit.country ?? known?.country,
+    gym: affiliation.gym ?? known?.gym,
+    country:
+      normalizeCountry(explicit.country) ?? affiliation.country ?? known?.country,
   };
 }
 
