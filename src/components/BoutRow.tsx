@@ -1,11 +1,7 @@
 import { Star } from "lucide-react";
 import type { Bout } from "@/types";
 import BoutTitleBadges from "@/components/BoutTitleBadges";
-import { fighterAnnotation } from "@/lib/fighterInfo";
-
-function isSelectableFighter(name: string): boolean {
-  return Boolean(name) && name !== "未定" && !name.startsWith("__");
-}
+import { fighterAnnotation, isSelectableFighter } from "@/lib/fighterInfo";
 
 function FighterName({
   name,

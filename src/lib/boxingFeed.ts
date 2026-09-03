@@ -18,8 +18,12 @@ const JBC_SCHEDULED_CATEGORY = 5;
 const JBC_FINISHED_CATEGORY = 6;
 const REVALIDATE_SECONDS = 60 * 60 * 24;
 const LIVE_FEED_TIMEOUT_MS = 20_000;
-const ENRICHED_FEED_TIMEOUT_MS = 30_000;
-const MAX_HISTORY_CARD_DATES = 64;
+// カード取得の実測は約23秒。ボクシングモバイルが遅い日でも打ち切らないよう
+// 倍以上の余裕を持たせる。
+const ENRICHED_FEED_TIMEOUT_MS = 60_000;
+// 過去興行の全日付（2021年以降で約210日付）を賄える上限。青天井にせず、
+// 収録範囲が伸びた時に取得量が跳ね上がらないようにする。
+const MAX_HISTORY_CARD_DATES = 256;
 const PRIORITY_CARD_SERIES = new Set([
   "Lemino Boxing",
   "Dynamic Glove",
@@ -31,6 +35,8 @@ const PRIORITY_CARD_SERIES = new Set([
 ]);
 const HISTORY_START = "2021-01-01T00:00:00";
 const MAX_HISTORY_PAGES = 10;
+const JBC_PAGE_ATTEMPTS = 3;
+const JBC_RETRY_DELAY_MS = 400;
 
 const MAJOR_SERIES = new Set([
   "Lemino Boxing",
@@ -167,13 +173,16 @@ function cityForVenue(venue: string): string {
   return places.find(([pattern]) => pattern.test(venue))?.[1] ?? "日本";
 }
 
+// プロモーター名は前方一致で判定しない。「名古屋大橋」は大橋プロモーション
+// （フェニックスバトル）とは別団体で、刈谷などの地方興行を主催している。
 function seriesForPromoter(promoter?: string): string | undefined {
   if (!promoter) return undefined;
-  if (/大橋(?:プロモーション)?/.test(promoter)) return "Phoenix Battle";
-  if (/志成(?:プロモーション)?/.test(promoter)) {
+  const name = promoter.normalize("NFKC").replace(/\s+/g, "");
+  if (/^大橋(?:プロモーション)?$/.test(name)) return "Phoenix Battle";
+  if (/^志成(?:プロモーション)?$/.test(name)) {
     return "Lifetime Boxing Fights";
   }
-  if (/亀田|KWORLD3/i.test(promoter)) return "3150 FIGHT";
+  if (/^(?:亀田|KWORLD3)(?:プロモーション)?$/i.test(name)) return "3150 FIGHT";
   return undefined;
 }
 
@@ -232,11 +241,16 @@ function daysAgoIso(days: number): string {
   return tokyoDate(date);
 }
 
+interface JbcPageResult {
+  posts: JbcPost[];
+  totalPages: number;
+}
+
 async function fetchJbcPage(
   category: number,
   page = 1,
   after?: string,
-): Promise<{ posts: JbcPost[]; totalPages: number }> {
+): Promise<JbcPageResult> {
   const params = new URLSearchParams({
     categories: String(category),
     per_page: "100",
@@ -269,26 +283,62 @@ async function fetchScheduledPosts(): Promise<JbcPost[]> {
   return (await fetchJbcPage(JBC_SCHEDULED_CATEGORY)).posts;
 }
 
-async function fetchFinishedHistory(): Promise<JbcPost[]> {
-  const first = await fetchJbcPage(
+async function fetchJbcPageWithRetry(
+  category: number,
+  page: number,
+  after?: string,
+): Promise<JbcPageResult> {
+  let lastError: Error = new Error(`JBC page ${page} could not be loaded`);
+  for (let attempt = 1; attempt <= JBC_PAGE_ATTEMPTS; attempt += 1) {
+    try {
+      return await fetchJbcPage(category, page, after);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < JBC_PAGE_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, JBC_RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError;
+}
+
+interface JbcHistory {
+  posts: JbcPost[];
+  /** 取得できなかった履歴ページ数。0でなければ収録興行が欠ける。 */
+  missingPages: number;
+}
+
+// 履歴ページを1枚でも落とすと収録興行が静かに減る（実測で245件→132件）。
+// 再試行したうえで、それでも落ちた場合は警告として表に出す。
+async function fetchFinishedHistory(): Promise<JbcHistory> {
+  const first = await fetchJbcPageWithRetry(
     JBC_FINISHED_CATEGORY,
     1,
     HISTORY_START,
   );
   const totalPages = Math.min(first.totalPages, MAX_HISTORY_PAGES);
-  if (totalPages === 1) return first.posts;
+  if (totalPages === 1) return { posts: first.posts, missingPages: 0 };
 
   const remaining = await Promise.allSettled(
     Array.from({ length: totalPages - 1 }, (_, index) =>
-      fetchJbcPage(JBC_FINISHED_CATEGORY, index + 2, HISTORY_START),
+      fetchJbcPageWithRetry(JBC_FINISHED_CATEGORY, index + 2, HISTORY_START),
     ),
   );
-  return [
-    first,
-    ...remaining
-      .filter((result): result is PromiseFulfilledResult<{ posts: JbcPost[]; totalPages: number }> => result.status === "fulfilled")
-      .map((result) => result.value),
-  ].flatMap((result) => result.posts);
+  const loaded = remaining.filter(
+    (result): result is PromiseFulfilledResult<JbcPageResult> =>
+      result.status === "fulfilled",
+  );
+  const missingPages = remaining.length - loaded.length;
+  if (missingPages > 0) {
+    console.warn(`Unable to load ${missingPages} JBC history page(s)`);
+  }
+
+  return {
+    posts: [first, ...loaded.map((result) => result.value)].flatMap(
+      (result) => result.posts,
+    ),
+    missingPages,
+  };
 }
 
 function latestUpdate(events: BoxingEvent[]): string | undefined {
@@ -314,9 +364,10 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
   const scheduledPosts = scheduledResult.status === "fulfilled"
     ? scheduledResult.value
     : [];
-  const finishedPosts = finishedResult.status === "fulfilled"
+  const finishedHistory: JbcHistory = finishedResult.status === "fulfilled"
     ? finishedResult.value
-    : [];
+    : { posts: [], missingPages: 0 };
+  const finishedPosts = finishedHistory.posts;
 
   const today = tokyoDate(new Date());
   const recentCutoff = daysAgoIso(180);
@@ -361,7 +412,13 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
     );
   }
   if (scheduledResult.status === "rejected") unavailableSources.push("JBC予定");
-  if (finishedResult.status === "rejected") unavailableSources.push("JBC結果");
+  if (finishedResult.status === "rejected") {
+    unavailableSources.push("JBC結果");
+  } else if (finishedHistory.missingPages > 0) {
+    unavailableSources.push(
+      `JBC結果の履歴${finishedHistory.missingPages}ページ`,
+    );
+  }
   return {
     events: storedEvents,
     mode: "live",
@@ -377,7 +434,7 @@ async function buildBaseLiveBoxingFeed(): Promise<BoxingFeed> {
 
 const getCachedBaseLiveBoxingFeed = unstable_cache(
   buildBaseLiveBoxingFeed,
-  ["signal-board-boxing-feed-v55-jbc-media-results"],
+  ["signal-board-boxing-feed-v56-boxmob-ad-retry"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed"],
@@ -441,7 +498,7 @@ async function buildCompleteBoxingFeed(): Promise<BoxingFeed> {
 // やり直さないためのキャッシュ境界。
 const getCachedCompleteBoxingFeed = unstable_cache(
   buildCompleteBoxingFeed,
-  ["signal-board-boxing-complete-feed-v1"],
+  ["signal-board-boxing-complete-feed-v2"],
   {
     revalidate: REVALIDATE_SECONDS,
     tags: ["boxing-feed", "boxing-complete-feed"],
@@ -472,10 +529,34 @@ function normalizeVenue(value: string): string {
     .replace(/[・･_/-]/g, "");
 }
 
+const PREFECTURE_TOKEN =
+  /(?:北海道|青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|東京|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|京都|大阪|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)(?:都|府|県)?/g;
+
+const KANJI_NUMBERS: Record<string, string> = {
+  一: "1", 二: "2", 三: "3", 四: "4", 五: "5",
+  六: "6", 七: "7", 八: "8", 九: "9", 十: "10",
+};
+
+/**
+ * 「エディオンアリーナ大阪第2競技場」と「大阪・エディオンアリーナ第2競技場」の
+ * ように、都道府県名の位置と第N競技場の表記だけが違う書き方をそろえる。
+ */
+function venueCore(value: string): string {
+  return normalizeVenue(value)
+    .replace(PREFECTURE_TOKEN, "")
+    .replace(/第([一二三四五六七八九十])/g, (_, kanji: string) => `第${KANJI_NUMBERS[kanji]}`);
+}
+
 function sameVenue(left: string, right: string): boolean {
   const a = normalizeVenue(left);
   const b = normalizeVenue(right);
-  return a === b || a.includes(b) || b.includes(a);
+  if (!a || !b) return false;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  // 都道府県名を落とした比較は部分一致を許さない。「東京ドーム」と
+  // 「福岡ドーム」が同じ会場になってしまうため。
+  const coreA = venueCore(left);
+  const coreB = venueCore(right);
+  return coreA.length >= 4 && coreA === coreB;
 }
 
 function sameMajorEvent(candidate: BoxingEvent, curated: BoxingEvent): boolean {
@@ -824,7 +905,8 @@ async function enrichEventsWithJbcResults(
     .filter(
       ({ event }) =>
         event.status === "finished" &&
-        event.bouts.length > 0 &&
+        // カードが1件も無い興行（ボクシングモバイルに掲載が無い地方興行）も
+        // 対象にする。記事に添付された結果PDFがカードそのものになる。
         resultUrls.has(event.id),
     )
     .sort((left, right) => right.event.date.localeCompare(left.event.date));
@@ -844,7 +926,9 @@ async function enrichEventsWithJbcResults(
         // JBCの興行記事には対戦カードPDFだけが添付され、結果PDFはメディア一覧に
         // 単独で登録されることがある。記事側で有効な結果を得られない時だけ、
         // 同日付の結果PDFを探して選手名で突き合わせる。
-        if (!best) {
+        // カードを持たない興行は突き合わせる相手がいないため、同日の別会場の
+        // PDFを拾ってしまわないよう、この探索は行わない。
+        if (!best && target.event.bouts.length > 0) {
           try {
             const mediaUrls = await discoverJbcResultPdfUrls(target.event.date);
             const discovered = await selectBestJbcResultPdf(
@@ -862,7 +946,9 @@ async function enrichEventsWithJbcResults(
             ...target.event,
             bouts: target.event.bouts.length > 0
               ? mergeCardResults(target.event.bouts, best.bouts)
-              : best.bouts,
+              // 突き合わせるカードが無い興行では、選手名を復元できなかった
+              // 試合はそのまま表示に出てしまうため落とす。
+              : best.bouts.filter((bout) => !hasUnresolvedFighterName(bout)),
           };
         } else if (lastError) {
           console.warn(
@@ -935,6 +1021,9 @@ async function loadBoxmobCardSets(
       event.status === "finished" &&
       (event.sourceName?.toLowerCase().includes("jbc") ||
         event.sourceName === "ボクシングモバイル" ||
+        // 公式台帳（majorBoxingEvents）だけに載っている主要シリーズの興行も
+        // カードは持っていない。ボクシングモバイル側には掲載があるため取得する。
+        PRIORITY_CARD_SERIES.has(event.series ?? "") ||
         Boolean(event.boxmobSid)),
   );
   if (boxmobTargets.length === 0) return [];
@@ -1120,6 +1209,17 @@ function cardSetMatchScore(event: BoxingEvent, cardSet: BoxmobCardSet): number {
   let score = 0;
   if (eventHint && eventHint === cardHint) score += 40;
   if (eventHint && cardHint && eventHint !== cardHint) score -= 100;
+  // 同じ日に複数の興行がある日でも、会場が一致すれば同じ興行と見てよい。
+  // JBC側が仮名称の地方興行は他に手掛かりが無く、これが唯一の決め手になる。
+  if (event.venue && cardSet.venue) {
+    if (sameVenue(event.venue, cardSet.venue)) {
+      score += 60;
+    } else if (!(eventHint && eventHint === cardHint)) {
+      // 会場表記が揺れているだけの場合もあるため、シリーズが一致している
+      // 興行までは落とさない。
+      score -= 30;
+    }
+  }
   if (eventHint === "3150" && /弁慶|benkei/i.test(cardSet.name)) score += 30;
   for (const resultBout of event.bouts) {
     if (cardSet.bouts.some((cardBout) => samePair(resultBout, cardBout))) score += 100;
@@ -1145,7 +1245,10 @@ function assignCardSets(
     .filter(
       ({ event }) =>
         event.status === "finished" &&
-        !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html"),
+        // ボクシングモバイル由来の興行はカードを持っている前提で対象外に
+        // していたが、カードが空のままの興行は補完する必要がある。
+        (event.bouts.length === 0 ||
+          !event.detailsUrl?.toLowerCase().includes("boxmob.jp/sp/schedule/index.html")),
     );
   const eventCountByDate = new Map<string, number>();
   const cardCountByDate = new Map<string, number>();
@@ -1251,6 +1354,13 @@ function isJbcPlaceholderResult(result: BoxingEvent["bouts"][number]): boolean {
     result.opponent.startsWith("__jbc_blue_");
 }
 
+/** PDFから選手名を復元できなかった側があるか。表示に出せない試合。 */
+function hasUnresolvedFighterName(
+  bout: BoxingEvent["bouts"][number],
+): boolean {
+  return bout.jpFighter.startsWith("__") || bout.opponent.startsWith("__");
+}
+
 function jbcBoutNumber(result: BoxingEvent["bouts"][number]): number | undefined {
   const match = result.id.match(/-b(\d+)$/);
   return match ? Number(match[1]) : undefined;
@@ -1269,6 +1379,15 @@ function jbcResultQuality(
   results: BoxingEvent["bouts"],
 ): number {
   if (results.length === 0) return 0;
+
+  // カードが無い興行は突き合わせる相手がいない。その興行自身の記事に
+  // 添付されたPDFなので、選手名を復元できた場合だけカードとして採用する。
+  if (cards.length === 0) {
+    const named = results.filter(
+      (result) => !hasUnresolvedFighterName(result),
+    ).length;
+    return named > 0 ? 40 + named : 0;
+  }
 
   const namedResults = results.filter((result) => result.method !== "引分");
   const namedMatches = cards.filter((card) =>

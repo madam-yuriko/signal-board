@@ -7,10 +7,14 @@ import { boutTitlesFromText } from "@/lib/boutTitles";
 
 const SCHEDULE_URL = "https://boxmob.jp/sp/schedule.html";
 const DETAIL_URL = "https://boxmob.jp/sp/schedule/index.html";
-const REVALIDATE_SECONDS = 60 * 60 * 24;
 // 詳細ページを一気に開きすぎると取得元が応答しきれず、一部が4秒で
 // タイムアウトする。日次更新なので並列数より完走率を優先する。
 const FETCH_CONCURRENCY = 8;
+// 本物のページが返るのは実測で3回に1回程度。URLやキャッシュ回避パラメータを
+// 変えても変わらず、サーバー側のリクエスト数で決まっているように見える。
+// 10回まで粘れば取りこぼしは1%未満に収まる。
+const MAX_FETCH_ATTEMPTS = 10;
+const RETRY_DELAY_MS = 120;
 const SCHEDULE_LIST_TIMEOUT_MS = 8_000;
 const SCHEDULE_DETAIL_TIMEOUT_MS = 4_000;
 const HISTORY_DETAIL_TIMEOUT_MS = 5_000;
@@ -29,6 +33,8 @@ export interface BoxmobCardSet {
   sid: string;
   date: string;
   name: string;
+  /** 興行詳細ページの「会場:」。興行の突き合わせに使う。 */
+  venue?: string;
   detailsUrl: string;
   bouts: Bout[];
 }
@@ -74,25 +80,64 @@ function plainText(value: string): string {
   );
 }
 
+/**
+ * ボクシングモバイルは同じURLに対して、実測でおよそ3回に1回しか本物の
+ * ページを返さない。残りは無関係な広告ページ（約3.4KB）を200で返す。
+ * URLやキャッシュ回避パラメータを変えても変わらないため、取得側で粘る。
+ * 広告を「カード未発表」として受け入れると、過去興行の試合結果が
+ * 大量に欠けたまま1日キャッシュされてしまう。
+ */
+function isInterstitialPage(html: string): boolean {
+  return !/boxmob/i.test(html);
+}
+
+/** 何度試しても結果が変わらない失敗。リトライせずに投げる。 */
+class PermanentFetchError extends Error {}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchShiftJis(
   url: string,
   timeoutMs = 12_000,
-  fresh = false,
 ): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "SignalBoard/1.0 (+public boxing schedule reader)",
-    },
-    ...(fresh
-      ? { cache: "no-store" as const }
-      : { next: { revalidate: REVALIDATE_SECONDS } }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok) {
-    throw new Error(`Boxing Mobile returned ${response.status}`);
+  let lastError: Error = new Error(`Boxing Mobile fetch failed: ${url}`);
+
+  for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "User-Agent": "SignalBoard/1.0 (+public boxing schedule reader)",
+        },
+        // 広告ページを24時間キャッシュに載せると、そのURLは丸1日カードが
+        // 空のままになる。完成後のフィード自体を1日キャッシュしているので、
+        // 個々のページは都度取得でよい。
+        cache: "no-store",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) {
+        const message = `Boxing Mobile returned ${response.status}`;
+        // 404などのクライアントエラーは何度試しても同じ。
+        if (response.status < 500 && response.status !== 429) {
+          throw new PermanentFetchError(message);
+        }
+        throw new Error(message);
+      }
+      const html = new TextDecoder("shift_jis").decode(
+        await response.arrayBuffer(),
+      );
+      if (!isInterstitialPage(html)) return html;
+      lastError = new Error(`Boxing Mobile returned an ad page: ${url}`);
+    } catch (error) {
+      if (error instanceof PermanentFetchError) throw error;
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+    if (attempt < MAX_FETCH_ATTEMPTS) await delay(RETRY_DELAY_MS);
   }
-  return new TextDecoder("shift_jis").decode(await response.arrayBuffer());
+
+  throw lastError;
 }
 
 function parseScheduleList(html: string): ScheduleEntry[] {
@@ -309,7 +354,7 @@ async function loadEvent(
   // 興行が正常データとして1日キャッシュされ、カードだけ消えた状態になる。
   // カード未発表の正常系は、取得成功後に parseBouts が空配列を返す場合だけ。
   bouts = parseBouts(
-    await fetchShiftJis(detailsUrl, detailTimeoutMs, true),
+    await fetchShiftJis(detailsUrl, detailTimeoutMs),
     `boxmob-${entry.sid}`,
   );
   const year = eventYear(entry.month, entry.day, now);
@@ -334,6 +379,12 @@ async function loadEvent(
   };
 }
 
+/** 興行詳細ページの「会場:○○」。JBC側の興行と突き合わせるために使う。 */
+function parseVenue(html: string): string | undefined {
+  const matched = html.match(/会場[:：]([^<]{1,40})/);
+  return matched ? plainText(matched[1]) || undefined : undefined;
+}
+
 async function loadCardSet(
   entry: ScheduleEntry,
   year: number,
@@ -341,19 +392,22 @@ async function loadCardSet(
 ): Promise<BoxmobCardSet> {
   const publicScheduleUrl = `${DETAIL_URL}?sid=${entry.sid}&s=1`;
   const resultUrl = `https://boxmob.jp/sp/flash/index.html?sid=${entry.sid}&f=1`;
+  // 試合結果ページ（flash）は会員向けになったらしく、どのsidでも同じ
+  // 12KBほどの汎用ページを返す。カードが載っているのは公開スケジュール側
+  // なので、そちらを先に見て取得回数を減らす。
   const sources = [
-    [resultUrl, "試合結果"],
     [publicScheduleUrl, "公開スケジュール"],
+    [resultUrl, "試合結果"],
   ] as const;
   let bouts: Bout[] = [];
+  let venue: string | undefined;
   let detailsUrl = publicScheduleUrl;
 
   for (const [url, label] of sources) {
     try {
-      bouts = parseBouts(
-        await fetchShiftJis(url, detailTimeoutMs),
-        `boxmob-${entry.sid}`,
-      );
+      const html = await fetchShiftJis(url, detailTimeoutMs);
+      venue ??= parseVenue(html);
+      bouts = parseBouts(html, `boxmob-${entry.sid}`);
       if (bouts.length > 0) {
         detailsUrl = url;
         break;
@@ -366,6 +420,7 @@ async function loadCardSet(
     sid: entry.sid,
     date: `${year}-${String(entry.month).padStart(2, "0")}-${String(entry.day).padStart(2, "0")}`,
     name: entry.name,
+    venue: venue ?? (entry.venue || undefined),
     detailsUrl,
     bouts,
   };
@@ -403,7 +458,12 @@ export async function fetchBoxmobHistoryCards(
     if (!allowedSeries || allowedSeries.size === 0) return true;
     const normalizedName = entry.name.normalize("NFKC").toLowerCase();
     return [...allowedSeries].some((series) => {
-      if (series === "3150") return /3150|kworld|lush|saikou/.test(normalizedName);
+      // 3150 FIGHTの興行はボクシングモバイル側では「BENKEI FIGHT」名義で
+      // 掲載されることがある。突き合わせ側（cardSetMatchScore）は既に
+      // 弁慶を加点しているので、取得候補の段階でも落とさない。
+      if (series === "3150") {
+        return /3150|kworld|lush|saikou|benkei|弁慶/.test(normalizedName);
+      }
       if (series === "prime") return /prime\s*video/.test(normalizedName);
       if (series === "dynamic-glove") return /dynamic\s*glove|ダイナミック/.test(normalizedName);
       if (series === "lifetime") return /life\s*time|lifetime/.test(normalizedName);
@@ -429,7 +489,7 @@ export async function fetchBoxmobHistoryCards(
 export async function fetchBoxmobSchedule(): Promise<BoxmobScheduleFetchResult> {
   const now = new Date();
   const entries = parseScheduleList(
-    await fetchShiftJis(SCHEDULE_URL, SCHEDULE_LIST_TIMEOUT_MS, true),
+    await fetchShiftJis(SCHEDULE_URL, SCHEDULE_LIST_TIMEOUT_MS),
   );
   if (entries.length === 0) {
     throw new Error("Boxing Mobile returned no scheduled events");

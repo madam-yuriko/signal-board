@@ -24,8 +24,11 @@ import BoxingDataTable, {
   type BoxingTableView,
 } from "@/components/BoxingDataTable";
 import EntityPicker from "@/components/EntityPicker";
+import FighterRecordSummary from "@/components/FighterRecordSummary";
 import { normalizeFighterName } from "@/lib/fighterInfo";
+import { buildFighterBouts, summarizeFighterRecord } from "@/lib/fighterRecord";
 import { useCheckedCards } from "@/hooks/useCheckedCards";
+import { useFighterRecord } from "@/hooks/useFighterRecord";
 
 interface Props {
   events: BoxingEvent[];
@@ -99,14 +102,30 @@ export default function BoxingDashboard({
       .filter((name) => normalizeFighterName(name).includes(query))
       .slice(0, 12);
   }, [filters.query, fighterOptions]);
+  const fighterView = tableView === "fighter";
+  const wikipediaRecord = useFighterRecord(
+    fighterView ? selectedFighter : "",
+  );
+  // Wikipediaに戦績表があればそれを正本にし、無ければ収録データだけで組み立てる。
+  const fighterRecord = useMemo(
+    () =>
+      buildFighterBouts(
+        selectedFighter,
+        boutsForTable(allBouts, "fighter", selectedFighter),
+        wikipediaRecord.record,
+      ),
+    [allBouts, selectedFighter, wikipediaRecord.record],
+  );
   const tableBouts = useMemo(
     () =>
-      boutsForTable(
-        tableView === "fighter" ? allBouts : filteredBouts,
-        tableView,
-        selectedFighter,
-      ),
-    [allBouts, filteredBouts, selectedFighter, tableView],
+      fighterView
+        ? fighterRecord.bouts
+        : boutsForTable(filteredBouts, tableView, selectedFighter),
+    [fighterRecord.bouts, fighterView, filteredBouts, selectedFighter, tableView],
+  );
+  const fighterStats = useMemo(
+    () => summarizeFighterRecord(fighterRecord.bouts, selectedFighter),
+    [fighterRecord.bouts, selectedFighter],
   );
 
   const changeTableView = (nextView: BoxingTableView) => {
@@ -129,7 +148,10 @@ export default function BoxingDashboard({
     setViewMode(nextMode);
   };
 
-  const changeSelectedFighter = (value: string) => {
+  const changeSelectedFighter = (
+    value: string,
+    options: { force?: boolean } = {},
+  ) => {
     if (viewMode === "cards" && cardScrollPosition.current === null) {
       cardScrollPosition.current = window.scrollY;
     }
@@ -139,9 +161,11 @@ export default function BoxingDashboard({
     const exactMatch = fighterOptions.find(
       (fighter) => normalizeFighterName(fighter) === normalizedValue,
     );
-    if (!exactMatch) return;
+    // 入力途中の文字列で一覧を切り替えない。ただし一覧内の対戦相手リンクからは、
+    // 収録データに無い選手でもWikipediaの戦績を見に行けるようにする。
+    if (!exactMatch && !options.force) return;
 
-    setSelectedFighter(exactMatch);
+    setSelectedFighter(exactMatch ?? value);
     setTableView("fighter");
     setViewMode("table");
     window.requestAnimationFrame(() => {
@@ -287,7 +311,7 @@ export default function BoxingDashboard({
         )}
       </DataViewToolbar>
 
-      {viewMode === "table" && tableView === "fighter" && !selectedFighter && fighterMatches.length > 0 && (
+      {viewMode === "table" && fighterView && !selectedFighter && fighterMatches.length > 0 && (
         <section className="glass-card flex flex-wrap items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-gray-400">
           <span className="mr-1">「{filters.query}」に一致する選手を選択：</span>
           {fighterMatches.map((fighter) => (
@@ -306,8 +330,7 @@ export default function BoxingDashboard({
         </section>
       )}
 
-      {filtered.length === 0 &&
-      !(viewMode === "table" && tableView === "fighter") ? (
+      {filtered.length === 0 && !(viewMode === "table" && fighterView) ? (
         <div className="glass-card flex flex-col items-center gap-2 rounded-lg py-10 text-center text-gray-400">
           <CalendarClock className="h-6 w-6 text-gray-600" />
           <p>条件に一致する興行がありません。</p>
@@ -324,17 +347,28 @@ export default function BoxingDashboard({
         </div>
       ) : viewMode === "table" ? (
         <>
-          {tableView === "fighter" && selectedFighter && (
-            <div className="rounded-md border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-100/80">
-              {selectedFighter}の過去の試合結果と今後の試合予定を同じ表に表示しています。上の興行フィルタはこの一覧には適用されません。
-            </div>
+          {fighterView && selectedFighter && (
+            <>
+              <FighterRecordSummary
+                fighter={selectedFighter}
+                stats={fighterStats}
+                source={fighterRecord.source}
+                status={wikipediaRecord.status}
+                record={wikipediaRecord.record}
+              />
+              <div className="rounded-md border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-100/80">
+                {selectedFighter}の過去の試合結果と今後の試合予定を同じ表に表示しています。上の興行フィルタはこの一覧には適用されません。
+              </div>
+            </>
           )}
           <BoxingDataTable
             view={tableView}
             events={filtered}
             bouts={tableBouts}
             selectedFighter={selectedFighter}
-            onSelectFighter={changeSelectedFighter}
+            onSelectFighter={(fighter) =>
+              changeSelectedFighter(fighter, { force: true })
+            }
           />
         </>
       ) : (

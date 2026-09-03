@@ -820,8 +820,10 @@ export default function TopicDashboard({
       schedule: "1",
       theater: favoriteTheaterFilter,
     });
+    // cache: "no-store" はブラウザが Cache-Control: no-cache を送るため、
+    // Next がサーバー側のデータキャッシュをバイパスし、映画.comの再取得が
+    // 毎回発生する。応答は private, no-store を返すのでブラウザには残らない。
     fetch(`/api/movie-theaters?${params.toString()}`, {
-      cache: "no-store",
       signal: controller.signal,
     })
       .then(async (response) => {

@@ -9,9 +9,11 @@ import { isWorldTitle, titlesForBout } from "@/lib/boutTitles";
 import {
   fighterAnnotation,
   fighterInfo,
+  isSelectableFighter,
   normalizeFighterName,
   sameFighterName,
 } from "@/lib/fighterInfo";
+import { fighterBoutResult } from "@/lib/fighterRecord";
 
 export type BoxingTableView = "events" | "bouts" | "world" | "fighter";
 type TableBoutResult = BoutResult | "unknown";
@@ -64,21 +66,8 @@ export function boutsForTable(
   return bouts;
 }
 
-function resultForFighter(bout: BoutWithEvent, fighter: string): BoutResult {
-  if (
-    bout.result === "scheduled" ||
-    bout.result === "draw" ||
-    bout.result === "no-contest" ||
-    bout.result === "cancelled"
-  ) {
-    return bout.result;
-  }
-  if (sameFighterName(bout.jpFighter, fighter)) return bout.result;
-  return bout.result === "win" ? "loss" : "win";
-}
-
 function tableResult(bout: BoutWithEvent, fighter?: string): TableBoutResult {
-  const result = fighter ? resultForFighter(bout, fighter) : bout.result;
+  const result = fighter ? fighterBoutResult(bout, fighter) : bout.result;
   return result === "scheduled" && !isEventUpcoming(bout.event)
     ? "unknown"
     : result;
@@ -164,6 +153,29 @@ function fighterLabel(
         </span>
       )}
     </>
+  );
+}
+
+/** 選手名から、その選手の結果・予定一覧へ切り替えられるようにする。 */
+function fighterNameCell(
+  name: string,
+  info: { country?: string; gym?: string },
+  onSelectFighter: (fighter: string) => void,
+  className: string,
+) {
+  const label = fighterLabel(name, info);
+  if (!isSelectableFighter(name)) {
+    return <span className={className}>{label}</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectFighter(name)}
+      className={`${className} cursor-pointer text-left underline decoration-white/20 underline-offset-2 transition-colors hover:text-red-200 hover:decoration-red-300/60`}
+      aria-label={`${name}の選手別結果を表示`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -262,15 +274,11 @@ function boutColumns(
             const info = selectedIsJapaneseSide
               ? { country: bout.opponentCountry, gym: bout.opponentGym }
               : { country: bout.jpFighterCountry, gym: bout.jpFighterGym };
-            return (
-              <button
-                type="button"
-                onClick={() => onSelectFighter(opponent)}
-                className="text-left font-semibold text-white underline decoration-white/20 underline-offset-2 transition-colors hover:text-red-200 hover:decoration-red-300/60"
-                aria-label={`${opponent}の選手別結果を表示`}
-              >
-                {fighterLabel(opponent, info)}
-              </button>
+            return fighterNameCell(
+              opponent,
+              info,
+              onSelectFighter,
+              "font-semibold text-white",
             );
           },
           sortValue: (bout) =>
@@ -280,35 +288,32 @@ function boutColumns(
       : {
           id: "matchup",
           label: "対戦カード",
-          render: (bout) => (
-            <div className="min-w-44">
-              <span
-                className={
-                  tableResult(bout) === "win"
-                    ? "font-semibold text-white"
-                    : "text-gray-300"
-                }
-              >
-                {fighterLabel(bout.jpFighter, {
-                  country: bout.jpFighterCountry,
-                  gym: bout.jpFighterGym,
-                })}
-              </span>
-              <span className="mx-1.5 text-gray-600">vs</span>
-              <span
-                className={
-                  tableResult(bout) === "loss"
-                    ? "font-semibold text-white"
-                    : "text-gray-300"
-                }
-              >
-                {fighterLabel(bout.opponent, {
-                  country: bout.opponentCountry,
-                  gym: bout.opponentGym,
-                })}
-              </span>
-            </div>
-          ),
+          render: (bout) => {
+            const result = tableResult(bout);
+            return (
+              <div className="min-w-44">
+                {fighterNameCell(
+                  bout.jpFighter,
+                  {
+                    country: bout.jpFighterCountry,
+                    gym: bout.jpFighterGym,
+                  },
+                  onSelectFighter,
+                  result === "win" ? "font-semibold text-white" : "text-gray-300",
+                )}
+                <span className="mx-1.5 text-gray-600">vs</span>
+                {fighterNameCell(
+                  bout.opponent,
+                  {
+                    country: bout.opponentCountry,
+                    gym: bout.opponentGym,
+                  },
+                  onSelectFighter,
+                  result === "loss" ? "font-semibold text-white" : "text-gray-300",
+                )}
+              </div>
+            );
+          },
           sortValue: (bout) => `${bout.jpFighter} ${bout.opponent}`,
           className: "min-w-52",
         },
@@ -372,7 +377,7 @@ function boutColumns(
       label: "興行",
       render: (bout) => (
         <div>
-          <div>{bout.event.name}</div>
+          <div>{bout.event.name || "—"}</div>
           {bout.event.series && (
             <div className="mt-0.5 text-[10px] text-gray-600">{bout.event.series}</div>
           )}
@@ -385,7 +390,8 @@ function boutColumns(
     {
       id: "venue",
       label: "会場",
-      render: (bout) => `${bout.event.venue}・${bout.event.city}`,
+      render: (bout) =>
+        [bout.event.venue, bout.event.city].filter(Boolean).join("・") || "—",
       sortValue: (bout) => `${bout.event.city} ${bout.event.venue}`,
       hideOnMobile: true,
       className: "min-w-40",

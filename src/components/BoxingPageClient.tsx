@@ -5,7 +5,9 @@ import BoxingDashboard from "@/components/BoxingDashboard";
 import type { BoxingFeed } from "@/lib/boxingFeed";
 
 const CLIENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const CLIENT_CACHE_KEY = "signal-board:boxing-feed:v1";
+// 取得ロジックを変えた時はキーを上げる。上げないと、既存の利用者は
+// 最大24時間、古い（カードが欠けた）フィードを見続けることになる。
+const CLIENT_CACHE_KEY = "signal-board:boxing-feed:v2";
 
 interface CachedFeed {
   feed: BoxingFeed;
@@ -73,7 +75,11 @@ async function requestFeed(): Promise<BoxingFeed> {
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
-    const response = await fetch("/api/boxing", { cache: "no-store" });
+    // cache: "no-store" はブラウザが Cache-Control: no-cache を送るため、
+    // Next がサーバー側のデータキャッシュをバイパスし、フィード全体
+    // （ボクモバ興行詳細＋JBC＋結果PDF解析）を毎回作り直してしまう。
+    // 応答自体は private, no-store を返すのでブラウザには残らない。
+    const response = await fetch("/api/boxing");
     const body = (await response.json()) as BoxingFeed | { error?: string };
 
     if (!response.ok) {

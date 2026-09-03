@@ -191,43 +191,53 @@ async function findTokyoSuggestions(
   }
 }
 
+// 応答自体はブラウザに残さない。クライアント側で cache: "no-store" を使うと
+// Cache-Control: no-cache が飛び、Next のデータキャッシュまで無効化されるため、
+// キャッシュ抑止はこの応答ヘッダー側で行う。
+function json(body: unknown, init?: { status?: number }) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: { "Cache-Control": "private, no-store" },
+  });
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   if (url.searchParams.get("options") === "1") {
     const prefecture = url.searchParams.get("pref") ?? "13";
     if (!/^\d{1,2}$/.test(prefecture)) {
-      return NextResponse.json({ theaters: [] }, { status: 400 });
+      return json({ theaters: [] }, { status: 400 });
     }
     try {
       const theaters = await getCachedTheaterOptions(prefecture);
-      return NextResponse.json({ theaters });
+      return json({ theaters });
     } catch (error) {
       console.warn(`Unable to load movie theater options for prefecture ${prefecture}`, error);
-      return NextResponse.json({ theaters: [] }, { status: 502 });
+      return json({ theaters: [] }, { status: 502 });
     }
   }
   if (url.searchParams.get("schedule") === "1") {
     const name = url.searchParams.get("theater")?.trim() ?? "";
-    if (!name) return NextResponse.json({ movieIds: [] }, { status: 400 });
+    if (!name) return json({ movieIds: [] }, { status: 400 });
     try {
       const theater = await resolveTheater(name, request.signal);
-      if (!theater) return NextResponse.json({ movieIds: [] }, { status: 404 });
+      if (!theater) return json({ movieIds: [] }, { status: 404 });
       const html = await fetchHtml(`${EIGA_ORIGIN}${theater.path}`, request.signal);
-      return NextResponse.json({
+      return json({
         theater: { name: theater.name, url: `${EIGA_ORIGIN}${theater.path}` },
         movieIds: scheduledMovieIds(html, theater.path),
       });
     } catch (error) {
       if (request.signal.aborted) return new Response(null, { status: 499 });
       console.warn(`Unable to load schedule for theater ${name}`, error);
-      return NextResponse.json({ movieIds: [] }, { status: 502 });
+      return json({ movieIds: [] }, { status: 502 });
     }
   }
   const movieUrl = url.searchParams.get("movie") ?? "";
   const movieId = movieUrl.match(/https?:\/\/eiga\.com\/movie\/(\d+)\/?/i)?.[1];
   const names = [...new Set(url.searchParams.getAll("theater").map((name) => name.trim()).filter(Boolean))];
   if (!movieId || names.length === 0) {
-    return NextResponse.json({ theaters: [] }, { status: 400 });
+    return json({ theaters: [] }, { status: 400 });
   }
 
   try {
@@ -253,12 +263,12 @@ export async function GET(request: Request) {
           available: true,
         }))
       : [];
-    return NextResponse.json({ theaters: resolved, suggestions });
+    return json({ theaters: resolved, suggestions });
   } catch (error) {
     if (request.signal.aborted) {
       return new Response(null, { status: 499 });
     }
     console.warn(`Unable to load theater availability for movie ${movieId}`, error);
-    return NextResponse.json({ theaters: [], suggestions: [] }, { status: 502 });
+    return json({ theaters: [], suggestions: [] }, { status: 502 });
   }
 }

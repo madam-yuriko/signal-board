@@ -60,6 +60,11 @@ export function normalizeFighterName(value: string): string {
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+/** 「未定」やプレースホルダーは、選手別一覧への切り替え対象にしない。 */
+export function isSelectableFighter(name: string): boolean {
+  return Boolean(name) && name !== "未定" && !name.startsWith("__");
+}
+
 export function sameFighterName(left: string, right: string): boolean {
   const a = normalizeFighterName(left);
   const b = normalizeFighterName(right);
