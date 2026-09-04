@@ -41,6 +41,7 @@ import {
   indieGamePlatformsFor,
 } from "@/lib/indieGamePlatforms";
 import { useCheckedCards } from "@/hooks/useCheckedCards";
+import CardListPagination, { useCardListPagination } from "@/components/CardListPagination";
 
 const TONE_STYLES: Record<TopicStatusTone, string> = {
   neutral: "border-white/15 bg-white/5 text-gray-300",
@@ -51,7 +52,6 @@ const TONE_STYLES: Record<TopicStatusTone, string> = {
 };
 
 const MOVIE_TYPES: MovieType[] = ["邦画", "洋画", "アニメ/CG"];
-const MOVIE_INITIAL_VISIBLE_CARDS = 30;
 const NAVIGATION_START_EVENT = "signal-board:navigation-start";
 const MOVIE_THEATER_PREFECTURES = [
   ["01", "北海道"], ["02", "青森"], ["03", "岩手"], ["04", "宮城"], ["05", "秋田"],
@@ -783,7 +783,6 @@ export default function TopicDashboard({
   const [theaterOptions, setTheaterOptions] = useState<TheaterOption[]>([]);
   const [theaterOptionValue, setTheaterOptionValue] = useState("");
   const [theaterOptionsLoading, setTheaterOptionsLoading] = useState(true);
-  const [visibleMovieCount, setVisibleMovieCount] = useState(MOVIE_INITIAL_VISIBLE_CARDS);
   const [viewMode, setViewMode] = useState<DataViewMode>("cards");
   const [tableView, setTableView] = useState<TopicTableView>("standard");
   const [selectedActor, setSelectedActor] = useState("");
@@ -809,7 +808,6 @@ export default function TopicDashboard({
     toggle: toggleCheckedCard,
   } = useCheckedCards(checkedCardScope, checkedCardScope ? items : []);
   const {
-    checkedCount: watchedItemCount,
     isChecked: isWatched,
     toggle: toggleWatchedCard,
   } = useCheckedCards(domain === "movie" ? "movie-watched" : undefined, domain === "movie" ? items : []);
@@ -1003,9 +1001,11 @@ export default function TopicDashboard({
     });
   }, [areaTab, category, checkedCardScope, checkedOnly, domain, favoriteTheaterFilter, favoriteTheaterFilterState, favoriteTheaterMovieIdSet, indieGenre, indiePlatform, isChecked, isWatched, items, movieGenres, movieTypes, query, region, status, watchedOnly]);
 
-  const visibleItems = domain === "movie"
-    ? filtered.slice(0, visibleMovieCount)
-    : filtered;
+  const {
+    visibleItems,
+    showMore: showMoreCards,
+    reset: resetCardPagination,
+  } = useCardListPagination(filtered);
 
   const movieActorsAvailable = useMemo(
     () =>
@@ -1082,7 +1082,7 @@ export default function TopicDashboard({
     setFavoriteTheaterFilter(next);
     setFavoriteTheaterMovieIds([]);
     setFavoriteTheaterFilterState(next === "all" ? "idle" : "loading");
-    setVisibleMovieCount(MOVIE_INITIAL_VISIBLE_CARDS);
+    resetCardPagination();
   }
 
   function toggleIndieGenre(value: string) {
@@ -1391,21 +1391,57 @@ export default function TopicDashboard({
                   </div>
                 </div>
                 {statusFilter}
-                <div className="space-y-2">
-                  <CheckedOnlyFilter
-                    label={checkedActionLabel}
-                    active={checkedOnly}
-                    count={checkedItemCount}
-                    onChange={setCheckedOnly}
-                    accent="fuchsia"
-                  />
-                  <CheckedOnlyFilter
-                    label="観た"
-                    active={watchedOnly}
-                    count={watchedItemCount}
-                    onChange={setWatchedOnly}
-                    accent="fuchsia"
-                  />
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-gray-500">
+                    視聴
+                  </div>
+                  <div role="group" aria-label="視聴状態で絞り込み" className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      aria-pressed={!checkedOnly && !watchedOnly}
+                      onClick={() => {
+                        setCheckedOnly(false);
+                        setWatchedOnly(false);
+                      }}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        !checkedOnly && !watchedOnly
+                          ? "border-white/25 bg-white/10 text-white"
+                          : "border-white/8 text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      すべて
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={checkedOnly}
+                      onClick={() => {
+                        setCheckedOnly(true);
+                        setWatchedOnly(false);
+                      }}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        checkedOnly
+                          ? "border-fuchsia-300/50 bg-fuchsia-400/15 text-fuchsia-100"
+                          : "border-white/8 text-gray-500 hover:border-fuchsia-300/40 hover:text-fuchsia-100"
+                      }`}
+                    >
+                      観たい
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={watchedOnly}
+                      onClick={() => {
+                        setCheckedOnly(false);
+                        setWatchedOnly(true);
+                      }}
+                      className={`rounded-md border px-2 py-1 text-[11px] ${
+                        watchedOnly
+                          ? "border-fuchsia-300/50 bg-fuchsia-400/15 text-fuchsia-100"
+                          : "border-white/8 text-gray-500 hover:border-fuchsia-300/40 hover:text-fuchsia-100"
+                      }`}
+                    >
+                      観た
+                    </button>
+                  </div>
                 </div>
               </div>
               <div>
@@ -1711,20 +1747,11 @@ export default function TopicDashboard({
               </div>
             ))}
           </div>
-          {domain === "movie" && visibleItems.length < filtered.length && (
-            <div className="mt-1 flex flex-col items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setVisibleMovieCount((current) => Math.min(current + MOVIE_INITIAL_VISIBLE_CARDS, filtered.length))}
-                className="rounded-md border border-fuchsia-300/30 bg-fuchsia-400/10 px-3 py-1.5 text-xs text-fuchsia-100 hover:bg-fuchsia-400/20"
-              >
-                さらに{Math.min(MOVIE_INITIAL_VISIBLE_CARDS, filtered.length - visibleItems.length)}件表示
-              </button>
-              <span className="text-[10px] text-gray-600">
-                {visibleItems.length}件表示 / 全{filtered.length}件
-              </span>
-            </div>
-          )}
+          <CardListPagination
+            visibleCount={visibleItems.length}
+            totalCount={filtered.length}
+            onShowMore={showMoreCards}
+          />
         </>
       )}
     </div>

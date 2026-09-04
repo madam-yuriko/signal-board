@@ -23,6 +23,7 @@ import {
 import DataViewToolbar, { type DataViewMode } from "@/components/DataViewToolbar";
 import CalendarDatePicker from "@/components/CalendarDatePicker";
 import type { AquariumRecord } from "@/types/aquarium";
+import CardListPagination, { useCardListPagination } from "@/components/CardListPagination";
 
 function today() {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -275,6 +276,10 @@ export default function AquariumDashboard({ initialRecords }: { initialRecords: 
     const tankMatches = tank === "all" || (tank === "unassigned" ? !record.tank : record.tank === tank);
     return (type === "all" || organismType(record) === type) && (group === "all" || record.taxonomyGroup === group) && tankMatches && (survival !== "alive" || livingCount(record) > 0) && (!query.trim() || haystack.includes(query.trim().toLocaleLowerCase("ja")));
   }), [group, query, records, survival, tank, type]);
+  const {
+    visibleItems: visibleRecords,
+    showMore: showMoreCards,
+  } = useCardListPagination(filtered);
 
   const aliveQuantity = records.reduce((sum, record) => sum + livingCount(record), 0);
   const totalSpent = records.reduce((sum, record) => sum + (totalPrice(record) ?? 0), 0);
@@ -308,7 +313,7 @@ export default function AquariumDashboard({ initialRecords }: { initialRecords: 
     </section>
 
     {error && <div className="rounded-lg border border-rose-400/20 bg-rose-400/8 px-3 py-2 text-xs text-rose-200">{error}</div>}
-    {filtered.length === 0 ? <section className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.015] px-5 text-center"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-cyan-400/8 text-cyan-300"><Fish className="h-7 w-7" /></div><h2 className="mt-4 text-sm font-bold text-gray-200">{records.length === 0 ? "最初の生体を登録しましょう" : "条件に合う記録がありません"}</h2><p className="mt-1.5 text-[11px] text-gray-600">{records.length === 0 ? "名前を入力すれば、種族や特徴を自動で調べます。" : "検索や絞り込み条件を変えてください。"}</p>{records.length === 0 && <button type="button" onClick={() => setEditor("new")} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-cyan-400/25 bg-cyan-400/8 px-3 py-2 text-[11px] font-semibold text-cyan-200"><Plus className="h-3.5 w-3.5" />記録を追加</button>}</section> : view === "cards" ? <div className="responsive-card-grid">{filtered.map((record) => <AquariumCard key={record.id} record={record} onEdit={setEditor} onDelete={(item) => void remove(item)} />)}</div> : <AquariumTable records={filtered} onEdit={setEditor} onDelete={(item) => void remove(item)} />}
+    {filtered.length === 0 ? <section className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.015] px-5 text-center"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-cyan-400/8 text-cyan-300"><Fish className="h-7 w-7" /></div><h2 className="mt-4 text-sm font-bold text-gray-200">{records.length === 0 ? "最初の生体を登録しましょう" : "条件に合う記録がありません"}</h2><p className="mt-1.5 text-[11px] text-gray-600">{records.length === 0 ? "名前を入力すれば、種族や特徴を自動で調べます。" : "検索や絞り込み条件を変えてください。"}</p>{records.length === 0 && <button type="button" onClick={() => setEditor("new")} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-cyan-400/25 bg-cyan-400/8 px-3 py-2 text-[11px] font-semibold text-cyan-200"><Plus className="h-3.5 w-3.5" />記録を追加</button>}</section> : view === "cards" ? <><div className="responsive-card-grid">{visibleRecords.map((record) => <AquariumCard key={record.id} record={record} onEdit={setEditor} onDelete={(item) => void remove(item)} />)}</div><CardListPagination visibleCount={visibleRecords.length} totalCount={filtered.length} onShowMore={showMoreCards} /></> : <AquariumTable records={filtered} onEdit={setEditor} onDelete={(item) => void remove(item)} />}
     {editor && <RecordEditor key={editor === "new" ? "new" : editor.id} record={editor === "new" ? undefined : editor} onClose={() => setEditor(undefined)} onSaved={saved} />}
   </div>;
 }

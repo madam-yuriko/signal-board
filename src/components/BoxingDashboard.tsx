@@ -40,6 +40,7 @@ import {
 import type { FighterProfile } from "@/lib/fighterProfile";
 import { useCheckedCards } from "@/hooks/useCheckedCards";
 import { useFighterRecord } from "@/hooks/useFighterRecord";
+import CardListPagination, { useCardListPagination } from "@/components/CardListPagination";
 
 interface Props {
   events: BoxingEvent[];
@@ -186,6 +187,10 @@ export default function BoxingDashboard({
       return (left.startTime ?? "").localeCompare(right.startTime ?? "");
     });
   }, [checkedEvents, checkedOnly, events, filters]);
+  const {
+    visibleItems: visibleEvents,
+    showMore: showMoreCards,
+  } = useCardListPagination(filtered);
   const filteredBouts = useMemo(() => flattenBouts(filtered), [filtered]);
   const allBouts = useMemo(() => flattenBouts(events), [events]);
   const fighterOptions = useMemo(
@@ -1071,18 +1076,25 @@ export default function BoxingDashboard({
           />
         </>
       ) : (
-        <div className="responsive-card-grid">
-          {filtered.map((event) => (
-            <div key={event.id} className="min-w-0">
-              <EventCard
-                event={event}
-                checked={isChecked(event)}
-                onToggleCheck={() => toggleCheckedEvent(event)}
-                onSelectFighter={changeSelectedFighter}
-              />
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="responsive-card-grid">
+            {visibleEvents.map((event) => (
+              <div key={event.id} className="min-w-0">
+                <EventCard
+                  event={event}
+                  checked={isChecked(event)}
+                  onToggleCheck={() => toggleCheckedEvent(event)}
+                  onSelectFighter={changeSelectedFighter}
+                />
+              </div>
+            ))}
+          </div>
+          <CardListPagination
+            visibleCount={visibleEvents.length}
+            totalCount={filtered.length}
+            onShowMore={showMoreCards}
+          />
+        </>
       )}
     </div>
   );

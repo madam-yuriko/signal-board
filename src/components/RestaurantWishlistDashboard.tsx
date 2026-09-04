@@ -16,6 +16,7 @@ import {
   Utensils,
 } from "lucide-react";
 import type { RestaurantWishlistRecord } from "@/types/restaurant";
+import CardListPagination, { useCardListPagination } from "@/components/CardListPagination";
 
 function number(value?: number) {
   return value === undefined ? "—" : value.toLocaleString("ja-JP");
@@ -168,6 +169,10 @@ export default function RestaurantWishlistDashboard({ initialRecords }: { initia
         return right.addedAt.localeCompare(left.addedAt);
       });
   }, [genre, prefecture, query, records, sort]);
+  const {
+    visibleItems: visibleRecords,
+    showMore: showMoreCards,
+  } = useCardListPagination(filtered);
 
   const averageScore = records.length > 0
     ? records.reduce((sum, record) => sum + (record.score ?? 0), 0) / records.filter((record) => record.score !== undefined).length
@@ -208,6 +213,6 @@ export default function RestaurantWishlistDashboard({ initialRecords }: { initia
     </section>
 
     {error && <div role="alert" className="rounded-lg border border-rose-400/20 bg-rose-400/8 px-3 py-2 text-xs text-rose-200">{error}</div>}
-    {filtered.length === 0 ? <section className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.015] px-5 text-center"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-300/8 text-amber-200"><Utensils className="h-7 w-7" /></div><h2 className="mt-4 text-sm font-bold text-gray-200">{records.length === 0 ? "行きたい店はまだありません" : "条件に合う店舗がありません"}</h2><p className="mt-1.5 text-[11px] text-gray-600">{records.length === 0 ? "Tabelog Insightの店舗一覧で左端のチェックを入れてください。" : "検索や絞り込み条件を変えてください。"}</p></section> : <div className="responsive-card-grid">{filtered.map((record) => <RestaurantCard key={record.tabelogId} record={record} removing={removingId === record.tabelogId} onRemove={(item) => void remove(item)} />)}</div>}
+    {filtered.length === 0 ? <section className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.015] px-5 text-center"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-300/8 text-amber-200"><Utensils className="h-7 w-7" /></div><h2 className="mt-4 text-sm font-bold text-gray-200">{records.length === 0 ? "行きたい店はまだありません" : "条件に合う店舗がありません"}</h2><p className="mt-1.5 text-[11px] text-gray-600">{records.length === 0 ? "Tabelog Insightの店舗一覧で左端のチェックを入れてください。" : "検索や絞り込み条件を変えてください。"}</p></section> : <><div className="responsive-card-grid">{visibleRecords.map((record) => <RestaurantCard key={record.tabelogId} record={record} removing={removingId === record.tabelogId} onRemove={(item) => void remove(item)} />)}</div><CardListPagination visibleCount={visibleRecords.length} totalCount={filtered.length} onShowMore={showMoreCards} /></>}
   </div>;
 }
