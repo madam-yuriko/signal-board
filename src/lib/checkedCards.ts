@@ -8,6 +8,7 @@ const SQLITE_MIGRATION_KEY_PREFIX = "signal-board-checked-cards-sqlite-migrated-
 export const CHECKED_CARD_SCOPES = [
   "indie-game",
   "movie",
+  "movie-watched",
   "boxing",
   "redevelopment",
 ] as const;
@@ -160,5 +161,6 @@ export function isCheckedCardItemForScope(
   value: unknown,
 ): value is CheckedCardItem {
   if (scope === "boxing") return isBoxingEventSnapshot(value);
-  return isTopicBoardSnapshot(value) && value.domain === scope;
+  return isTopicBoardSnapshot(value) &&
+    (scope === "movie-watched" ? value.domain === "movie" : value.domain === scope);
 }

@@ -51,9 +51,15 @@ interface AquaHermitArticle {
   content?: { rendered?: string };
 }
 
+interface AquariumGuideArticle {
+  link?: string;
+  content?: { rendered?: string };
+}
+
 interface KnownTaxon {
   scientificName: string;
   imageSearchName?: string;
+  imageUrl?: string;
   taxonomyGroup: string;
   familyName: string;
   summary: string;
@@ -62,6 +68,24 @@ interface KnownTaxon {
 }
 
 const KNOWN_TAXA: Record<string, KnownTaxon> = {
+  オトシンネグロ: {
+    scientificName: "Otothyropsis piribebuy",
+    imageUrl: "https://aquatorch.jp/wp-content/uploads/2025/01/DSC_0129-400x267.jpg",
+    taxonomyGroup: "ナマズ・プレコ",
+    familyName: "ロリカリア科",
+    summary: "オトシンネグロは、吸盤状の口でガラス面・流木・水草の葉に付いたコケをついばむ小型ナマズです。流通名には学名の混同がありますが、現在は Otothyropsis piribebuy とされる個体が一般的です。性格はとても温和で、攻撃性のない小型魚との混泳に向きます。コケ取りとして知られますが、コケだけでは栄養が足りないため、沈下性の人工飼料や植物性の餌を補助的に与え、痩せていないか腹部を観察してください。導入直後は水質変化や餌切れに弱いため、十分に立ち上がった水槽へ丁寧に水合わせして入れるのが安全です。高水温・酸欠を避け、流れと酸素を確保しつつ、隠れ場所や落ち着いて餌を取れる場所を用意しましょう。状態が安定すれば水槽内繁殖も狙える種です。",
+    maxSize: "約3.5〜5cm（全長）",
+    sourceUrl: "https://aquatorch.jp/tropicalfish_enc/otothyropsis_piribebuy/",
+  },
+  オトシンクルスネグロ: {
+    scientificName: "Otothyropsis piribebuy",
+    imageUrl: "https://aquatorch.jp/wp-content/uploads/2025/01/DSC_0129-400x267.jpg",
+    taxonomyGroup: "ナマズ・プレコ",
+    familyName: "ロリカリア科",
+    summary: "オトシンネグロは、吸盤状の口でガラス面・流木・水草の葉に付いたコケをついばむ小型ナマズです。流通名には学名の混同がありますが、現在は Otothyropsis piribebuy とされる個体が一般的です。性格はとても温和で、攻撃性のない小型魚との混泳に向きます。コケ取りとして知られますが、コケだけでは栄養が足りないため、沈下性の人工飼料や植物性の餌を補助的に与え、痩せていないか腹部を観察してください。導入直後は水質変化や餌切れに弱いため、十分に立ち上がった水槽へ丁寧に水合わせして入れるのが安全です。高水温・酸欠を避け、流れと酸素を確保しつつ、隠れ場所や落ち着いて餌を取れる場所を用意しましょう。状態が安定すれば水槽内繁殖も狙える種です。",
+    maxSize: "約3.5〜5cm（全長）",
+    sourceUrl: "https://aquatorch.jp/tropicalfish_enc/otothyropsis_piribebuy/",
+  },
   ブエノスアイレステトラ: {
     scientificName: "Psalidodon anisitsi",
     imageSearchName: "Hyphessobrycon anisitsi",
@@ -109,7 +133,7 @@ const GROUP_RULES: Array<[string, RegExp]> = [
   ["カラシン", /カラシン|テトラ|ペンシルフィッシュ|ハチェットフィッシュ/i],
   ["シクリッド", /シクリッド|カワスズメ科|ティラピア|アピストグラマ|ディスカス|エンゼルフィッシュ/i],
   ["コイ・ラスボラ", /コイ目|コイ科|ラスボラ|ダニオ|バルブ|アカヒレ/i],
-  ["ナマズ・プレコ", /ナマズ目|ナマズ科|コリドラス|プレコ|オトシンクルス/i],
+  ["ナマズ・プレコ", /ナマズ目|ナマズ科|コリドラス|プレコ|オトシン|ロリカリア/i],
   ["メダカ・卵胎生メダカ", /メダカ科|グッピー|プラティ|モーリー|ソードテール|カダヤシ科/i],
   ["ベタ・グラミー", /ベタ属|グラミー|オスフロネムス科|キノボリウオ亜目/i],
   ["レインボーフィッシュ", /レインボーフィッシュ|メラノタエニア科/i],
@@ -281,8 +305,65 @@ function aquariumArticleSummary(name: string, text: string, group: string, size?
 }
 
 function extractArticleSize(text: string) {
-  const match = text.match(/(?:最大サイズ|一般的に|飼育下)[^\d]{0,30}(\d+(?:[〜～~\-]\d+)?\s*cm)/i);
+  const match = text.match(/(?:大きさ目安|最大サイズ|最大体長|一般的に|飼育下|成長すると|体長)[^\d]{0,30}(\d+(?:\.\d+)?(?:[〜～~\-]\d+(?:\.\d+)?)?\s*cm)/i);
   return match?.[1]?.replace(/\s/g, "");
+}
+
+function representativeArticleImage(html: string, host: string): string | undefined {
+  const tags = html.match(/<img\b[^>]*>/gi) ?? [];
+  for (const tag of tags) {
+    const source = tag.match(/\bsrc=["']([^"']+)["']/i)?.[1];
+    if (!source) continue;
+    try {
+      if (new URL(source).hostname === host) return source;
+    } catch {
+      // Ignore malformed image URLs from the source article.
+    }
+  }
+  return undefined;
+}
+
+async function fetchAquaTorchProfile(name: string): Promise<AquariumProfile | undefined> {
+  try {
+    const params = new URLSearchParams({ search: name, per_page: "10", subtype: "tropicalfish_enc" });
+    const searchResponse = await fetch(`https://aquatorch.jp/wp-json/wp/v2/search?${params}`, {
+      headers: { "User-Agent": "SignalBoard/0.1 aquarium-profile" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!searchResponse.ok) return undefined;
+    const target = normalized(name);
+    const result = (await searchResponse.json() as AquaHermitSearchResult[])
+      .find((candidate) => candidate.id && candidate.subtype === "tropicalfish_enc" && normalized(candidate.title ?? "").includes(target));
+    if (!result?.id) return undefined;
+
+    const articleResponse = await fetch(`https://aquatorch.jp/wp-json/wp/v2/tropicalfish_enc/${result.id}`, {
+      headers: { "User-Agent": "SignalBoard/0.1 aquarium-profile" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!articleResponse.ok) return undefined;
+    const article = await articleResponse.json() as AquariumGuideArticle;
+    const html = article.content?.rendered ?? "";
+    const text = htmlToText(html);
+    if (!text) return undefined;
+
+    const taxonomyGroup = classify(text);
+    const maxSize = extractArticleSize(text);
+    const scientificName = scientificNameFromUrl(article.link ?? result.url);
+    const articleImage = representativeArticleImage(html, "aquatorch.jp");
+    const commonsImage = scientificName ? await fetchCommonsImage(scientificName) : undefined;
+    return {
+      taxonomyGroup: taxonomyGroup === "水草" ? "その他の生体" : taxonomyGroup,
+      scientificName,
+      summary: aquariumArticleSummary(name, text, taxonomyGroup, maxSize),
+      maxSize,
+      sourceUrl: article.link ?? result.url,
+      imageUrl: commonsImage ?? articleImage,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchAquaHermitProfile(name: string): Promise<AquariumProfile | undefined> {
@@ -306,7 +387,8 @@ async function fetchAquaHermitProfile(name: string): Promise<AquariumProfile | u
     });
     if (!articleResponse.ok) return undefined;
     const article = await articleResponse.json() as AquaHermitArticle;
-    const text = htmlToText(article.content?.rendered ?? "");
+    const html = article.content?.rendered ?? "";
+    const text = htmlToText(html);
     if (!text) return undefined;
 
     const classifiedGroup = classify(text);
@@ -314,7 +396,7 @@ async function fetchAquaHermitProfile(name: string): Promise<AquariumProfile | u
     const taxonomyGroup = classifiedGroup === "水草" ? "その他の生体" : classifiedGroup;
     const maxSize = extractArticleSize(text);
     const scientificName = scientificNameFromUrl(article.link ?? result.url);
-    const imageUrl = await fetchCommonsImage(scientificName ?? name);
+    const imageUrl = await fetchCommonsImage(scientificName ?? name) ?? representativeArticleImage(html, "www.aquahermit.com");
     return {
       taxonomyGroup,
       scientificName,
@@ -364,7 +446,7 @@ async function fetchCommonsImage(searchName: string): Promise<string | undefined
 async function knownTaxonProfile(name: string): Promise<AquariumProfile | undefined> {
   const taxon = KNOWN_TAXA[normalized(name)];
   if (!taxon) return undefined;
-  const imageUrl = await fetchCommonsImage(taxon.imageSearchName ?? taxon.scientificName);
+  const imageUrl = await fetchCommonsImage(taxon.imageSearchName ?? taxon.scientificName) ?? taxon.imageUrl;
   return {
     taxonomyGroup: taxon.taxonomyGroup,
     familyName: taxon.familyName,
@@ -440,6 +522,12 @@ export async function fetchAquariumProfile(name: string, fallbackName?: string):
 
   const guideFallback = fallbackName ? await fetchJapaneseFishGuideProfile(fallbackName) : undefined;
   if (guideFallback) return guideFallback;
+
+  const aquaTorch = await fetchAquaTorchProfile(name);
+  if (aquaTorch) return aquaTorch;
+
+  const aquaTorchFallback = fallbackName ? await fetchAquaTorchProfile(fallbackName) : undefined;
+  if (aquaTorchFallback) return aquaTorchFallback;
 
   const aquaHermit = await fetchAquaHermitProfile(name);
   if (aquaHermit) return aquaHermit;

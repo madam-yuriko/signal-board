@@ -20,10 +20,109 @@ export function movieCast(item: TopicBoard): string[] {
     .filter(Boolean);
 }
 
-export function movieRating(item: TopicBoard): number | undefined {
-  const value = topicMetric(item, "レビュー") ?? topicMetric(item, "視聴評価");
-  const rating = value?.match(/\d+(?:\.\d+)?/)?.[0];
+function ratingFromValue(value: string | undefined): number | undefined {
+  const rating = value?.match(/([0-5](?:\.\d+)?)\s*\/\s*5/)?.[1] ?? value?.match(/^[0-5](?:\.\d+)?/)?.[0];
   return rating === undefined ? undefined : Number.parseFloat(rating);
+}
+
+interface MovieSourceReview {
+  rating?: number;
+  count?: number;
+  href?: string;
+}
+
+function movieSourceReview(item: TopicBoard, source: "映画.com" | "Filmarks"): MovieSourceReview {
+  const reviewMetric = item.metrics.find((metric) => metric.label === "レビュー");
+  const reviewLine = reviewMetric?.lines?.find((line) => line.label === source);
+  const legacyLabel = source === "映画.com" ? "映画.comレビュー" : "Filmarksレビュー";
+  const legacyMetric = item.metrics.find((metric) => metric.label === legacyLabel);
+  const value = reviewLine?.value ?? legacyMetric?.value;
+  const countValue = value?.match(/\(([\d,]+)件\)/)?.[1] ?? value?.match(/([\d,]+)件/)?.[1];
+  return {
+    rating: ratingFromValue(value),
+    count: countValue === undefined ? undefined : Number.parseInt(countValue.replace(/,/g, ""), 10),
+    href: reviewLine?.href ?? legacyMetric?.href,
+  };
+}
+
+function movieSourceRating(item: TopicBoard, source: "映画.com" | "Filmarks"): number | undefined {
+  return movieSourceReview(item, source).rating;
+}
+
+export function movieEigaRating(item: TopicBoard): number | undefined {
+  return movieSourceRating(item, "映画.com");
+}
+
+export function movieFilmarksRating(item: TopicBoard): number | undefined {
+  return movieSourceRating(item, "Filmarks");
+}
+
+export function movieRating(item: TopicBoard): number | undefined {
+  const ratings = [movieEigaRating(item), movieFilmarksRating(item)].filter(
+    (rating): rating is number => rating !== undefined,
+  );
+  return ratings.length > 0 ? ratings.reduce((total, rating) => total + rating, 0) : undefined;
+}
+
+function movieReleaseTimestamp(item: TopicBoard): number | undefined {
+  const value = topicMetric(item, "公開日") ?? item.dateLabel;
+  const date = value?.match(/(\d{4})[年./-](\d{1,2})[月./-](\d{1,2})日?/);
+  if (!date) return undefined;
+  return Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3]));
+}
+
+function compareMovieRatings(left: TopicBoard, right: TopicBoard): number {
+  const leftRating = movieRating(left);
+  const rightRating = movieRating(right);
+  if (leftRating === undefined && rightRating !== undefined) return 1;
+  if (leftRating !== undefined && rightRating === undefined) return -1;
+  if (leftRating !== undefined && rightRating !== undefined && leftRating !== rightRating) {
+    return rightRating - leftRating;
+  }
+
+  const leftDate = movieReleaseTimestamp(left);
+  const rightDate = movieReleaseTimestamp(right);
+  if (leftDate === undefined && rightDate === undefined) return 0;
+  if (leftDate === undefined) return 1;
+  if (rightDate === undefined) return -1;
+  return rightDate - leftDate;
+}
+
+function movieReviewCell(item: TopicBoard, source: "映画.com" | "Filmarks"): React.ReactNode {
+  const review = movieSourceReview(item, source);
+  if (review.rating === undefined && review.count === undefined) {
+    return <span className="text-gray-600">—</span>;
+  }
+
+  const content = (
+    <>
+      {review.rating === undefined ? (
+        <span className="text-gray-600">—</span>
+      ) : (
+        <>
+          <Star className="h-3 w-3 fill-amber-300 text-amber-300" />
+          <span className="font-semibold text-amber-300">{review.rating.toFixed(1)}</span>
+        </>
+      )}
+      {review.count !== undefined && (
+        <span className="text-[10px] text-gray-500">({review.count.toLocaleString("ja-JP")}件)</span>
+      )}
+    </>
+  );
+  return review.href ? (
+    <a
+      href={review.href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums hover:text-cyan-200 hover:underline"
+    >
+      {content}
+    </a>
+  ) : (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums">
+      {content}
+    </span>
+  );
 }
 
 function metricSummary(item: TopicBoard): React.ReactNode {
@@ -83,20 +182,17 @@ function movieColumns(): DataTableColumn<TopicBoard>[] {
       className: "min-w-44",
     },
     {
-      id: "rating",
-      label: "評価",
-      render: (item) => {
-        const rating = movieRating(item);
-        return rating === undefined ? (
-          <span className="text-gray-600">—</span>
-        ) : (
-          <span className="inline-flex items-center gap-1 font-semibold tabular-nums text-amber-300">
-            <Star className="h-3 w-3 fill-amber-300" />
-            {rating.toFixed(1)}
-          </span>
-        );
-      },
-      sortValue: movieRating,
+      id: "eiga-rating",
+      label: "映画.com評価",
+      render: (item) => movieReviewCell(item, "映画.com"),
+      sortValue: movieEigaRating,
+      align: "right",
+    },
+    {
+      id: "filmarks-rating",
+      label: "Filmarks評価",
+      render: (item) => movieReviewCell(item, "Filmarks"),
+      sortValue: movieFilmarksRating,
       align: "right",
     },
     {
@@ -238,8 +334,8 @@ export default function TopicDataTable({
   view: TopicTableView;
 }) {
   const columns = domain === "movie" ? movieColumns() : standardColumns(domain);
-  const defaultSort = domain === "movie" && view === "rating"
-    ? { columnId: "rating", direction: "desc" as const }
+  const defaultSort = domain === "movie"
+    ? { columnId: "movie-rating-total", direction: "desc" as const }
     : undefined;
   return (
     <DataTable
@@ -248,6 +344,7 @@ export default function TopicDataTable({
       columns={columns}
       rowKey={(item) => item.id}
       defaultSort={defaultSort}
+      defaultCompareRows={domain === "movie" ? compareMovieRatings : undefined}
       emptyMessage={view === "actor" ? "この俳優の出演作は、現在の条件では見つかりません。" : undefined}
     />
   );

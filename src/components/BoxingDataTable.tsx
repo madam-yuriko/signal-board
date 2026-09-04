@@ -542,7 +542,7 @@ function fighterColumns(
     },
     {
       id: "record",
-      label: "収録戦績",
+      label: "戦績",
       render: (fighter) => (
         <div className="whitespace-nowrap">
           {fighter.record.total > 0 ? formatRecordLine(fighter.record) : "—"}
@@ -780,7 +780,6 @@ export default function BoxingDataTable({
         defaultSort={{ columnId: "record", direction: "desc" }}
         defaultCompareRows={compareFightersByPriority}
         emptyMessage="選択した階級に一致する選手がいません。"
-        pageSize={20}
         onPageChange={(_, pageFighters) => onFighterPageChange?.(pageFighters)}
       />
     );

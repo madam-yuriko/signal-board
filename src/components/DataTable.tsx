@@ -6,6 +6,8 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ChevronsUpDown,
 } from "lucide-react";
 
@@ -34,9 +36,10 @@ interface Props<T> {
   defaultSort?: DataTableSort;
   defaultCompareRows?: (left: T, right: T) => number;
   emptyMessage?: string;
-  pageSize?: number;
   onPageChange?: (page: number, rows: T[]) => void;
 }
+
+export const DATA_TABLE_PAGE_SIZE = 20;
 
 function compareValues(a: SortValue, b: SortValue): number {
   const aEmpty = a === null || a === undefined || a === "";
@@ -58,7 +61,6 @@ export default function DataTable<T>({
   defaultSort,
   defaultCompareRows,
   emptyMessage = "表示できるデータがありません。",
-  pageSize,
   onPageChange,
 }: Props<T>) {
   const [sort, setSort] = useState<DataTableSort | undefined>(defaultSort);
@@ -67,11 +69,11 @@ export default function DataTable<T>({
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
     const column = columns.find((item) => item.id === sort.columnId);
-    if (!column?.sortValue) return rows;
     const usingDefaultComparator =
       Boolean(defaultCompareRows && defaultSort) &&
       sort.columnId === defaultSort?.columnId &&
       sort.direction === defaultSort?.direction;
+    if (!column?.sortValue && !usingDefaultComparator) return rows;
     return rows
       .map((row, index) => ({ row, index }))
       .sort((a, b) => {
@@ -79,8 +81,8 @@ export default function DataTable<T>({
           const compared = defaultCompareRows(a.row, b.row);
           return compared === 0 ? a.index - b.index : compared;
         }
-        const aValue = column.sortValue?.(a.row);
-        const bValue = column.sortValue?.(b.row);
+        const aValue = column?.sortValue?.(a.row);
+        const bValue = column?.sortValue?.(b.row);
         const aEmpty = aValue === null || aValue === undefined || aValue === "";
         const bEmpty = bValue === null || bValue === undefined || bValue === "";
         if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
@@ -91,15 +93,20 @@ export default function DataTable<T>({
       .map(({ row }) => row);
   }, [columns, defaultCompareRows, defaultSort, rows, sort]);
 
-  const pageCount = pageSize ? Math.max(1, Math.ceil(sortedRows.length / pageSize)) : 1;
+  const pageCount = Math.max(
+    1,
+    Math.ceil(sortedRows.length / DATA_TABLE_PAGE_SIZE),
+  );
   const currentPage = Math.min(requestedPage, pageCount - 1);
-  const visibleRows = pageSize
-    ? sortedRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
-    : sortedRows;
-  const firstVisibleRow = pageSize ? currentPage * pageSize + 1 : 1;
-  const lastVisibleRow = pageSize
-    ? Math.min((currentPage + 1) * pageSize, sortedRows.length)
-    : sortedRows.length;
+  const visibleRows = sortedRows.slice(
+    currentPage * DATA_TABLE_PAGE_SIZE,
+    (currentPage + 1) * DATA_TABLE_PAGE_SIZE,
+  );
+  const firstVisibleRow = currentPage * DATA_TABLE_PAGE_SIZE + 1;
+  const lastVisibleRow = Math.min(
+    (currentPage + 1) * DATA_TABLE_PAGE_SIZE,
+    sortedRows.length,
+  );
 
   function toggleSort(column: DataTableColumn<T>) {
     if (!column.sortValue) return;
@@ -118,16 +125,19 @@ export default function DataTable<T>({
   function changePage(nextPage: number) {
     const boundedPage = Math.max(0, Math.min(pageCount - 1, nextPage));
     setRequestedPage(boundedPage);
-    if (onPageChange && pageSize) {
+    if (onPageChange) {
       onPageChange(
         boundedPage,
-        sortedRows.slice(boundedPage * pageSize, (boundedPage + 1) * pageSize),
+        sortedRows.slice(
+          boundedPage * DATA_TABLE_PAGE_SIZE,
+          (boundedPage + 1) * DATA_TABLE_PAGE_SIZE,
+        ),
       );
     }
   }
 
   function paginationControls(className: string) {
-    if (!pageSize || pageCount <= 1) return null;
+    if (pageCount <= 1) return null;
     return (
       <div className={className}>
         <span>
@@ -138,6 +148,15 @@ export default function DataTable<T>({
           <span>
             {currentPage + 1} / {pageCount}ページ
           </span>
+          <button
+            type="button"
+            onClick={() => changePage(0)}
+            disabled={currentPage === 0}
+            className="rounded border border-white/10 p-1 text-gray-300 transition-colors hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            aria-label="先頭ページ"
+          >
+            <ChevronsLeft className="h-4 w-4" />
+          </button>
           <button
             type="button"
             onClick={() => changePage(currentPage - 1)}
@@ -155,6 +174,15 @@ export default function DataTable<T>({
             aria-label="次のページ"
           >
             <ChevronRight className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => changePage(pageCount - 1)}
+            disabled={currentPage === pageCount - 1}
+            className="rounded border border-white/10 p-1 text-gray-300 transition-colors hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            aria-label="最終ページ"
+          >
+            <ChevronsRight className="h-4 w-4" />
           </button>
         </div>
       </div>

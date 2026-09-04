@@ -9,9 +9,18 @@ export type MovieType = "邦画" | "洋画" | "アニメ/CG";
 
 export type TopicStatusTone = "neutral" | "info" | "warning" | "danger" | "success";
 
+export interface TopicMetricLine {
+  label: string;
+  value: string;
+  href?: string;
+}
+
 export interface TopicMetric {
   label: string;
   value: string;
+  href?: string;
+  fullWidth?: boolean;
+  lines?: TopicMetricLine[];
 }
 
 export interface TopicPrice {

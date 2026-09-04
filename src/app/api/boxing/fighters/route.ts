@@ -30,6 +30,17 @@ function isFresh(value?: string): boolean {
   );
 }
 
+/** 保存済み選手データだけを返す。Wikipediaへの外部アクセスは行わない。 */
+export async function GET() {
+  return NextResponse.json(
+    {
+      profiles: listFighterProfiles(),
+      records: listFighterRecords(),
+    },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
+}
+
 export async function POST(request: Request) {
   let body: unknown;
   try {

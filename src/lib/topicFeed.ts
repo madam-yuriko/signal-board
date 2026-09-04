@@ -22,6 +22,7 @@ import type {
   MovieType,
   TopicBoard,
   TopicDomain,
+  TopicMetricLine,
   TopicPrice,
   TopicReleaseDate,
   TopicStatusTone,
@@ -34,7 +35,7 @@ const FETCH_TIMEOUT_MS = 12_000;
 const EIGA_ORIGIN = "https://eiga.com";
 const FILMARKS_ORIGIN = "https://filmarks.com";
 const MOVIE_UPCOMING_DAYS = 90;
-const MOVIE_FEED_CACHE_VERSION = "movie-classification-v3";
+const MOVIE_FEED_CACHE_VERSION = "movie-formal-genres-v9-filmarks-review-score";
 const INDIE_GAME_FEED_CACHE_VERSION = "indie-platform-release-dates-v2";
 const INDIE_GAME_MAX_ITEMS = 120;
 const INDIE_GAME_RELEASE_WINDOW_YEARS = 1;
@@ -63,6 +64,11 @@ interface FeedEntry {
   genres?: string[];
   reviewScore?: string;
   reviewCount?: string;
+  reviewUrl?: string;
+  filmarksReviewScore?: string;
+  filmarksReviewCount?: string;
+  filmarksReviewUrl?: string;
+  distributor?: string;
   genreSources?: string[];
   director?: string;
   cast?: string[];
@@ -336,36 +342,6 @@ function redevelopmentCard(entry: RedevelopmentListEntry, index: number): TopicB
   };
 }
 
-const MOVIE_GENRE_RULES: Array<[string, RegExp]> = [
-  ["アクション", /アクション|action/i],
-  ["ホラー", /ホラー|horror/i],
-  ["スリラー", /スリラー|thriller/i],
-  ["サスペンス", /サスペンス|suspense/i],
-  ["パニック", /パニック|panic/i],
-  ["サバイバル", /サバイバル|生き残ろう|生き延び|生き残り|survival|survive/i],
-  ["犯罪", /犯罪|犯罪者|殺人|強盗|刑事|捜査|容疑者|クライム|crime|murder|detective|criminal/i],
-  ["バイオレンス", /バイオレンス|暴力|殺戮|残虐|violent|violence|gore/i],
-  ["SF", /\bSF\b|サイエンスフィクション|science fiction/i],
-  ["ファンタジー", /ファンタジー|fantasy/i],
-  ["ドラマ", /ドラマ|drama/i],
-  ["コメディ", /コメディ|喜劇|comedy/i],
-  ["恋愛", /恋愛|ラブストーリー|romance/i],
-  ["青春", /青春|coming[- ]of[- ]age/i],
-  ["アドベンチャー", /アドベンチャー|冒険|adventure/i],
-  ["ミステリー", /ミステリー|mystery/i],
-  ["ドキュメンタリー", /ドキュメンタリー|documentary/i],
-  ["戦争", /戦争|war film/i],
-  ["スポーツ", /スポーツ|sports/i],
-  ["音楽", /ミュージカル|音楽|music|musical/i],
-  ["歴史・伝記", /歴史|伝記|historical|biographical/i],
-  ["ファミリー", /ファミリー|family/i],
-];
-
-const MOVIE_TITLE_GENRE_OVERRIDES: Array<[RegExp, string[]]> = [
-  [/^オークストリートの異変$/, ["サバイバル", "SF", "ホラー"]],
-  [/^名無し$/, ["犯罪", "バイオレンス", "スリラー"]],
-];
-
 const INDIE_GAME_CATEGORY_RULES: Array<[string, RegExp]> = [
   ["RPG", /RPG|ロールプレイング|role[- ]playing/i],
   ["アクション", /アクション|action|platformer|プラットフォーマー/i],
@@ -389,17 +365,39 @@ interface MovieSupplementalInfo {
   genres: string[];
   director?: string;
   cast: string[];
+  reviewScore?: string;
+  reviewCount?: string;
+  reviewUrl?: string;
+}
+
+function normalizeFilmarksMovieUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url, FILMARKS_ORIGIN);
+    if (parsed.hostname !== "filmarks.com" || !/^\/movies\/\d+(?:\/reviews)?\/?$/i.test(parsed.pathname)) {
+      return url;
+    }
+    parsed.pathname = parsed.pathname.replace(/\/reviews\/?$/i, "");
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return url;
+  }
 }
 
 function filmarksMovieInfoFromHtml(html: string, title: string): MovieSupplementalInfo {
   const normalizedTitle = normalizeMovieTitle(title);
   const cards = [...html.matchAll(
-    /<div class=["']p-content-cassette["']>([\s\S]*?)(?=<div class=["']p-content-cassette["']>|<\/body>)/gi,
+    /<div\b(?=[^>]*\bclass=["'][^"']*\bp-content-cassette\b[^"']*["'])[^>]*>([\s\S]*?)(?=<div\b(?=[^>]*\bclass=["'][^"']*\bp-content-cassette\b[^"']*["'])|<\/body>)/gi,
   )].map((match) => match[1]);
   for (const card of cards) {
     const cardTitle = plainText(firstMatch(card, /<h3 class=["']p-content-cassette__title["'][^>]*>([\s\S]*?)<\/h3>/i) ?? "");
     if (normalizeMovieTitle(cardTitle) !== normalizedTitle) continue;
-    const genreList = firstMatch(card, /<ul class=["']genres["'][^>]*>([\s\S]*?)<\/ul>/i) ?? "";
+    const moviePath = firstMatch(card, /<a\b[^>]+href=["']((?:https?:\/\/filmarks\.com)?\/movies\/\d+\/?)["']/i);
+    const reviewUrl = moviePath
+      ? new URL(moviePath, FILMARKS_ORIGIN).toString().replace(/\/+$/, "")
+      : undefined;
+    const cardReview = filmarksMovieReviewFromHtml(card);
+    const genreList = firstMatch(card, /<ul\b[^>]*\bclass=["'][^"']*\bgenres\b[^"']*["'][^>]*>([\s\S]*?)<\/ul>/i) ?? "";
     const genres = [...genreList.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi)]
       .map((match) => plainText(match[1]))
       .map((genre) => FILMARKS_GENRE_MAP[genre] ?? genre)
@@ -414,15 +412,114 @@ function filmarksMovieInfoFromHtml(html: string, title: string): MovieSupplement
       if (peopleMatch[1] === "監督") director = names[0];
       else if (peopleMatch[1] === "出演者" || peopleMatch[1] === "出演") cast = names.slice(0, 4);
     }
-    return { genres: [...new Set(genres)], director, cast };
+    return {
+      genres: [...new Set(genres)],
+      director,
+      cast,
+      reviewUrl,
+      ...cardReview,
+    };
   }
   return { genres: [], cast: [] };
 }
 
+function filmarksMovieInfoFromJsonLd(html: string, title: string): MovieSupplementalInfo {
+  const normalizedTitle = normalizeMovieTitle(title);
+  const scripts = [...html.matchAll(
+    /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )];
+  const personNames = (value: unknown): string[] => {
+    const people = Array.isArray(value) ? value : value ? [value] : [];
+    return people.flatMap((person) => {
+      if (typeof person === "string") return [person];
+      if (person && typeof person === "object" && typeof (person as { name?: unknown }).name === "string") {
+        return [(person as { name: string }).name];
+      }
+      return [];
+    });
+  };
+
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(script[1]) as Record<string, unknown> | Array<Record<string, unknown>>;
+      const candidates = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed["@graph"])
+          ? parsed["@graph"] as Array<Record<string, unknown>>
+          : [parsed];
+      const movie = candidates.find((candidate) => {
+        const type = candidate["@type"];
+        const candidateTitle = typeof candidate.title === "string"
+          ? candidate.title
+          : typeof candidate.name === "string"
+            ? candidate.name
+            : "";
+        return (type === "Movie" || (Array.isArray(type) && type.includes("Movie"))) &&
+          normalizeMovieTitle(candidateTitle) === normalizedTitle;
+      });
+      if (!movie) continue;
+      const genres = Array.isArray(movie.genres)
+        ? movie.genres.filter((genre): genre is string => typeof genre === "string")
+        : [];
+      return {
+        genres: [...new Set(genres.map((genre) => FILMARKS_GENRE_MAP[genre] ?? genre))],
+        director: personNames(movie.director)[0],
+        cast: personNames(movie.actor).slice(0, 6),
+      };
+    } catch {
+      // Ignore malformed structured data and try the next JSON-LD block.
+    }
+  }
+  return { genres: [], cast: [] };
+}
+
+function filmarksMovieReviewFromHtml(html: string): Pick<MovieSupplementalInfo, "reviewScore" | "reviewCount"> {
+  const pageText = plainText(html);
+  const reviewScore = firstMatch(
+    html,
+    /class=["'][^"']*\bc2-rating-l__text\b[^"']*["'][^>]*>\s*([0-5](?:\.[0-9]+)?)/i,
+  ) ?? firstMatch(
+    html,
+    /class=["'][^"']*\bc-rating__score\b[^"']*["'][^>]*>\s*([0-5](?:\.[0-9]+)?)/i,
+  ) ?? firstMatch(html, /["']rating["']\s*:\s*["']?([0-5](?:\.[0-9]+)?)/i);
+  const reviewCount = firstMatch(
+    pageText,
+    /([\d,]+)\s*件(?:の)?(?:レビュー|感想・評価)/i,
+  ) ?? firstMatch(
+    pageText,
+    /(?:レビュー|感想・評価)[^\d]{0,80}([\d,]+)\s*件/i,
+  ) ?? firstMatch(
+    html,
+    /["'](?:reviewCount|review_count|reviewsCount)["']\s*:\s*["']?([\d,]+)/i,
+  ) ?? firstMatch(
+    html,
+    /(?:data-review[-_]?count|review[-_]?count)=["']([\d,]+)["']/i,
+  );
+  return { reviewScore, reviewCount };
+}
+
 async function fetchFilmarksMovieInfo(title: string): Promise<MovieSupplementalInfo> {
   try {
-    const html = await fetchText(`${FILMARKS_ORIGIN}/search/movies?q=${encodeURIComponent(title)}`);
-    return filmarksMovieInfoFromHtml(html, title);
+    const searchHtml = await fetchText(`${FILMARKS_ORIGIN}/search/movies?q=${encodeURIComponent(title)}`);
+    const info = filmarksMovieInfoFromHtml(searchHtml, title);
+    if (!info.reviewUrl) return info;
+    try {
+      const movieUrl = info.reviewUrl.replace(/\/reviews\/?$/, "/");
+      const detailHtml = await fetchText(movieUrl);
+      const structuredInfo = filmarksMovieInfoFromJsonLd(detailHtml, title);
+      const formalInfo = structuredInfo.genres.length > 0 ? structuredInfo : info;
+      const detailReview = filmarksMovieReviewFromHtml(detailHtml);
+      return {
+        ...info,
+        ...formalInfo,
+        reviewScore: detailReview.reviewScore ?? info.reviewScore,
+        reviewCount: detailReview.reviewCount ?? info.reviewCount,
+        reviewUrl: info.reviewUrl,
+      };
+    } catch (error) {
+      console.warn(`Unable to load Filmarks review info for ${title}`, error);
+      return info;
+    }
   } catch (error) {
     console.warn(`Unable to load Filmarks movie info for ${title}`, error);
     return { genres: [], cast: [] };
@@ -432,7 +529,7 @@ async function fetchFilmarksMovieInfo(title: string): Promise<MovieSupplementalI
 function getCachedFilmarksMovieInfo(title: string): Promise<MovieSupplementalInfo> {
   return unstable_cache(
     () => fetchFilmarksMovieInfo(title),
-    ["signal-board-filmarks-movie-info-v2", title],
+    ["signal-board-filmarks-movie-info-v6-formal-genres", title],
     {
       revalidate: REVALIDATE_SECONDS,
       tags: ["movie-feed-filmarks-info"],
@@ -471,7 +568,7 @@ function classifyMovie(
   title: string,
   description: string,
   html: string,
-  supplementalGenres: string[] = [],
+  formalGenres: string[] = [],
 ): Pick<FeedEntry, "movieType" | "genres"> {
   const detailText = plainText(html);
   const productionInfo = detailText.match(
@@ -482,16 +579,18 @@ function classifyMovie(
     .map((field) => field.trim())
     .filter(Boolean);
   const country = productionFields[productionFields.length - 1] ?? "";
-  const story = detailText.match(/解説・あらすじ([\s\S]*?)(?:スタッフ・キャスト|全てのスタッフ)/i)?.[1] ?? detailText.slice(0, 4_000);
-  const searchable = `${title} ${description} ${country} ${story}`;
+  // Keep staff/credits out of the genre evidence. The page contains entries
+  // such as "音楽" in the credits, which are not movie genres.
+  const story = detailText.match(/解説・あらすじ([\s\S]*?)(?:スタッフ[・／/]?(?:声優[・／/])?キャスト|全てのスタッフ)/i)?.[1] ?? detailText.slice(0, 4_000);
   const animeEvidence = [
     title,
     description,
     country,
     story.split(/[。！？!?]/).slice(0, 2).join(" "),
-    ...supplementalGenres,
+    ...formalGenres,
   ].join(" ");
-  const anime = /テレビアニメ|アニメーション|アニメ作品|アニメ映画|劇場版アニメ|anime|animation|3d\s*cg|cg作品/i.test(animeEvidence);
+  const anime = formalGenres.some((genre) => /^アニメ(?:ーション)?$/i.test(genre)) ||
+    /テレビアニメ|アニメーション|アニメ作品|アニメ映画|劇場版アニメ|anime|animation|3d\s*cg|cg作品/i.test(animeEvidence);
   const movieType: MovieType = anime
     ? "アニメ/CG"
     : country
@@ -501,11 +600,9 @@ function classifyMovie(
       : /[A-Za-z]{3,}/.test(title)
         ? "洋画"
         : "邦画";
-  const detectedGenres = MOVIE_GENRE_RULES
-    .filter(([, pattern]) => pattern.test(searchable))
-    .map(([genre]) => genre);
-  const overrideGenres = MOVIE_TITLE_GENRE_OVERRIDES.find(([pattern]) => pattern.test(title))?.[1] ?? [];
-  const genres = [...new Set([...detectedGenres, ...supplementalGenres, ...overrideGenres])]
+  // Use only the provider's formal genre field. Synopsis words such as
+  // "パニック" describe plot events and must not become genres.
+  const genres = [...new Set(formalGenres.map((genre) => FILMARKS_GENRE_MAP[genre] ?? genre))]
     .filter((genre) => genre !== "その他");
   return {
     movieType,
@@ -1638,6 +1735,22 @@ function movieUrls(indexHtml: string): string[] {
   return [...new Set(urls)];
 }
 
+function eigaMovieReviewUrl(url: string): string {
+  return `${url.replace(/\/+$/, "")}/review/`;
+}
+
+function movieReviewMetricValue(score?: string, count?: string): string {
+  const rating = score ? `${score} / 5` : "未評価";
+  return count ? `${rating} (${count}件)` : rating;
+}
+
+function parseMovieDistributor(html: string): string | undefined {
+  const detailText = plainText(html);
+  return detailText.match(
+    /配給[：:]\s*([\s\S]*?)(?=\s+(?:劇場公開日|公開日|上映時間|ジャンル|スタッフ|解説|レビュー)[：:]|$)/i,
+  )?.[1]?.trim();
+}
+
 function nowMoviePageUrls(indexHtml: string): string[] {
   const pages = [...indexHtml.matchAll(/href=["'](\/now\/all\/release\/\d+\/)["']/gi)]
     .map((match) => `${EIGA_ORIGIN}${match[1]}`);
@@ -1666,16 +1779,9 @@ async function fetchMovieDetails(url: string, status: "screening" | "upcoming"):
     if (!title) return undefined;
     const cleanTitle = plainText(title);
     const description = plainText(firstMatch(html, /<meta name="description" content="([^"]+)"/i) ?? "");
-    const baselineClassification = classifyMovie(cleanTitle, description, html);
     const eigaCredits = parseMovieCredits(html);
-    const needsSupplement = (baselineClassification.genres?.length ?? 0) <= 1 ||
-      MOVIE_TITLE_GENRE_OVERRIDES.some(([pattern]) => pattern.test(cleanTitle)) ||
-      !eigaCredits.director || (eigaCredits.cast?.length ?? 0) === 0;
-    const supplementalInfo = needsSupplement
-      ? await getCachedFilmarksMovieInfo(cleanTitle)
-      : { genres: [], cast: [] };
-    const supplementalGenres = supplementalInfo.genres;
-    const classification = classifyMovie(cleanTitle, description, html, supplementalGenres);
+    const filmarksInfo = await getCachedFilmarksMovieInfo(cleanTitle);
+    const classification = classifyMovie(cleanTitle, description, html, filmarksInfo.genres);
     const reviewSummary = html.match(/([0-5](?:\.[0-9])?)\s*全\s*([\d,]+)件/i);
     const reviewScore = firstMatch(html, /class=["']review-average["'][\s\S]*?class=["']rating-star[^"']*["'][^>]*>([0-9]+(?:\.[0-9]+)?)/i) ??
       reviewSummary?.[1];
@@ -1693,9 +1799,14 @@ async function fetchMovieDetails(url: string, status: "screening" | "upcoming"):
       status,
       reviewScore,
       reviewCount,
-      director: eigaCredits.director ?? supplementalInfo.director,
-      cast: eigaCredits.cast?.length ? eigaCredits.cast : supplementalInfo.cast,
-      genreSources: supplementalGenres.length > 0 ? ["映画.com", "Filmarks"] : ["映画.com"],
+      reviewUrl: eigaMovieReviewUrl(url),
+      filmarksReviewScore: filmarksInfo.reviewScore,
+      filmarksReviewCount: filmarksInfo.reviewCount,
+      filmarksReviewUrl: filmarksInfo.reviewUrl,
+      distributor: parseMovieDistributor(html),
+      director: eigaCredits.director ?? filmarksInfo.director,
+      cast: eigaCredits.cast?.length ? eigaCredits.cast : filmarksInfo.cast,
+      genreSources: filmarksInfo.genres.length > 0 ? ["Filmarks"] : [],
       ...classification,
     } as FeedEntry & { status: "screening" | "upcoming" };
   } catch {
@@ -1709,7 +1820,7 @@ function getCachedMovieDetails(
 ): Promise<FeedEntry | undefined> {
   return unstable_cache(
     () => fetchMovieDetails(url, status),
-    ["signal-board-movie-detail-v13-production-country-anime-evidence", status, url],
+    ["signal-board-movie-detail-v17-formal-genres", status, url],
     {
       revalidate: REVALIDATE_SECONDS,
       tags: ["movie-feed-details"],
@@ -1767,17 +1878,32 @@ async function fetchMovies(): Promise<TopicFeed> {
       { label: "地域", value: "全国" },
       {
         label: "情報源",
-        value: entry.genreSources?.includes("Filmarks") ? "映画.com + Filmarks（補完）" : "映画.com",
+        value: entry.genreSources?.includes("Filmarks") ? "Filmarks（正式ジャンル）" : "ジャンル未取得",
       },
-      { label: "レビュー", value: entry.reviewScore ? `${entry.reviewScore} / 5` : "未評価" },
-      { label: "口コミ数", value: entry.reviewCount ? `${entry.reviewCount}件` : "0件" },
+      {
+        label: "レビュー",
+        value: movieReviewMetricValue(entry.reviewScore, entry.reviewCount),
+        lines: [
+          {
+            label: "映画.com",
+            value: movieReviewMetricValue(entry.reviewScore, entry.reviewCount),
+            href: entry.reviewUrl,
+          },
+          {
+            label: "Filmarks",
+            value: movieReviewMetricValue(entry.filmarksReviewScore, entry.filmarksReviewCount),
+            href: entry.filmarksReviewUrl,
+          },
+        ],
+      },
+      { label: "配給元", value: entry.distributor || "掲載なし" },
       { label: "監督", value: entry.director || "掲載なし" },
       { label: "メインキャスト", value: entry.cast?.length ? entry.cast.join("\n") : "掲載なし" },
     ],
     updates: [{ at: dateLabel(entry.date, "").trim() || "最新", text: "映画.comの作品情報を更新" }],
     tags: [
       "映画.com",
-      ...(entry.genreSources?.includes("Filmarks") ? ["Filmarks（ジャンル補完）"] : []),
+      ...(entry.genreSources?.includes("Filmarks") ? ["Filmarks（正式ジャンル）"] : []),
       entry.status === "screening" ? "上映中" : "公開予定",
       ...(entry.genres ?? []),
     ],
@@ -1840,9 +1966,60 @@ async function buildTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
   return fetchDisasters();
 }
 
+function migrateMovieReviewMetrics(feed: TopicFeed): TopicFeed {
+  const items = feed.items.map((item) => {
+    if (item.domain !== "movie") return item;
+    const eigaReview = item.metrics.find((metric) => metric.label === "映画.comレビュー");
+    const filmarksReview = item.metrics.find((metric) => metric.label === "Filmarksレビュー");
+    const normalizeLine = (line: TopicMetricLine): TopicMetricLine =>
+      line.label === "Filmarks"
+        ? { ...line, href: normalizeFilmarksMovieUrl(line.href) }
+        : line;
+    if (!eigaReview && !filmarksReview) {
+      const metrics = item.metrics.map((metric) =>
+        metric.label === "レビュー" && metric.lines
+          ? { ...metric, lines: metric.lines.map(normalizeLine) }
+          : metric,
+      );
+      return { ...item, metrics };
+    }
+
+    const reviewLines: TopicMetricLine[] = [];
+    if (eigaReview) reviewLines.push({ label: "映画.com", value: eigaReview.value, href: eigaReview.href });
+    if (filmarksReview) {
+      reviewLines.push({
+        label: "Filmarks",
+        value: filmarksReview.value,
+        href: normalizeFilmarksMovieUrl(filmarksReview.href),
+      });
+    }
+    const reviewMetric = {
+      label: "レビュー",
+      value: eigaReview?.value ?? filmarksReview?.value ?? "未評価",
+      lines: reviewLines,
+    };
+    const metrics = [] as typeof item.metrics;
+    let inserted = false;
+    for (const metric of item.metrics) {
+      if (metric.label === "映画.comレビュー") {
+        if (!inserted) {
+          metrics.push(reviewMetric);
+          metrics.push({ label: "配給元", value: "掲載なし" });
+          inserted = true;
+        }
+        continue;
+      }
+      if (metric.label === "Filmarksレビュー") continue;
+      metrics.push(metric);
+    }
+    return { ...item, metrics };
+  });
+  return { ...feed, items };
+}
+
 const getCachedTopicFeed = unstable_cache(
   async (domain: TopicDomain) => buildTopicFeed(domain),
-  ["signal-board-topic-feed-v54-indie-platform-release-dates"],
+  ["signal-board-topic-feed-v60-filmarks-review-score"],
   { revalidate: REVALIDATE_SECONDS, tags: ["topic-feed"] },
 );
 
@@ -1879,9 +2056,7 @@ async function readLastGoodFeed(domain: TopicDomain): Promise<TopicFeed | undefi
     if (domain === "redevelopment" && feed.sourceName !== "東京都・札幌市 公式再開発地区一覧 / 全国注目プロジェクト選定") {
       return undefined;
     }
-    if (domain === "movie" && feed.cacheVersion !== MOVIE_FEED_CACHE_VERSION) {
-      return undefined;
-    }
+    if (domain === "movie") return migrateMovieReviewMetrics(feed);
     if (domain === "indie-game" &&
       (feed.cacheVersion !== INDIE_GAME_FEED_CACHE_VERSION ||
         feed.items.some((item) => !item.releaseDate || !Array.isArray(item.genres)))) return undefined;
@@ -1929,9 +2104,10 @@ async function withSoftTimeout<T>(promise: Promise<T>, timeoutMs: number): Promi
 export async function getTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
   const persistedFeed = await readLastGoodFeed(domain);
   if (persistedFeed) {
+    const needsMovieRefresh = domain === "movie" && persistedFeed.cacheVersion !== MOVIE_FEED_CACHE_VERSION;
     try {
       const stat = await fs.stat(path.join(LAST_GOOD_FEED_DIR, `${domain}.json`));
-      if (Date.now() - stat.mtimeMs < LAST_GOOD_FEED_MAX_AGE_MS) return persistedFeed;
+      if (!needsMovieRefresh && Date.now() - stat.mtimeMs < LAST_GOOD_FEED_MAX_AGE_MS) return persistedFeed;
     } catch {
       // Fall through to a live refresh when the snapshot timestamp is unavailable.
     }
@@ -1966,7 +2142,8 @@ export async function getTopicFeed(domain: TopicDomain): Promise<TopicFeed> {
         try {
           const staleFeed = await getLegacyCachedTopicFeed(cacheKey)(domain);
           if (staleFeed.mode === "live" && staleFeed.items.length > 0 &&
-            (domain !== "indie-game" || staleFeed.items.every((item) => Boolean(item.releaseDate) && Array.isArray(item.genres)))) {
+            (domain !== "indie-game" || staleFeed.items.every((item) => Boolean(item.releaseDate) && Array.isArray(item.genres))) &&
+            (domain !== "movie" || staleFeed.cacheVersion === MOVIE_FEED_CACHE_VERSION)) {
             console.warn(`Using stale ${domain} feed cache ${cacheKey}`);
             return domain === "indie-game" ? feedWithIndieTracking(staleFeed) : staleFeed;
           }

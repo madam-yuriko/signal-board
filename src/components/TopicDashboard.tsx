@@ -85,6 +85,7 @@ const MOVIE_GENRE_ORDER = [
   "青春",
   "コメディ",
   "ファミリー",
+  "アニメ",
   "スポーツ",
   "音楽",
   "戦争",
@@ -195,7 +196,7 @@ const DOMAIN_STYLES: Record<
     icon: Film,
     filter: "focus:border-fuchsia-400/60",
     imageFallback: "from-fuchsia-950 via-zinc-900 to-indigo-950",
-    searchPlaceholder: "作品名・ジャンル・キーワードで検索",
+    searchPlaceholder: "作品タイトル・ジャンル・監督・キャストで検索（部分一致）",
   },
   "indie-game": {
     label: "インディーゲーム",
@@ -472,11 +473,15 @@ function TopicCard({
   favoriteTheaters,
   checked,
   onToggleCheck,
+  watched = false,
+  onToggleWatched,
 }: {
   item: TopicBoard;
   favoriteTheaters: string[];
   checked: boolean;
   onToggleCheck: () => void;
+  watched?: boolean;
+  onToggleWatched?: () => void;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const domain = DOMAIN_STYLES[item.domain];
@@ -545,9 +550,36 @@ function TopicCard({
               </span>
             )}
           </div>
-          {(item.domain === "indie-game" ||
-            item.domain === "movie" ||
-            item.domain === "redevelopment") && (
+          {item.domain === "movie" ? (
+            <div className="relative z-20 flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                aria-pressed={checked}
+                onClick={onToggleCheck}
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold shadow-lg backdrop-blur transition ${
+                  checked
+                    ? "border-emerald-300/50 bg-emerald-400/25 text-emerald-100"
+                    : "border-white/20 bg-black/55 text-gray-200 hover:border-emerald-300/40 hover:text-emerald-100"
+                }`}
+              >
+                {checked && <Check className="h-3.5 w-3.5" />}
+                {checked ? "観たい済み" : "観たい"}
+              </button>
+              <button
+                type="button"
+                aria-pressed={watched}
+                onClick={onToggleWatched}
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold shadow-lg backdrop-blur transition ${
+                  watched
+                    ? "border-sky-300/50 bg-sky-400/25 text-sky-100"
+                    : "border-white/20 bg-black/55 text-gray-200 hover:border-sky-300/40 hover:text-sky-100"
+                }`}
+              >
+                {watched && <Check className="h-3.5 w-3.5" />}
+                {watched ? "観た済み" : "観た"}
+              </button>
+            </div>
+          ) : (item.domain === "indie-game" || item.domain === "redevelopment") && (
             <button
               type="button"
               aria-pressed={checked}
@@ -618,11 +650,40 @@ function TopicCard({
           {item.metrics.filter((metric) => metric.label !== "発売日採用").map((metric) => (
             <div
               key={metric.label}
-              className="border-b border-white/8 px-1 py-2 odd:border-r last:border-b-0 [&:nth-last-child(2)]:border-b-0"
+              className={`${metric.fullWidth ? "col-span-2" : "odd:border-r"} border-b border-white/8 px-1 py-2 last:border-b-0 [&:nth-last-child(2)]:border-b-0`}
             >
               <dt className="text-[10px] text-gray-500">{metric.label}</dt>
                 <dd className={`mt-0.5 text-xs font-semibold text-gray-100 ${metric.label === "メインキャスト" || metric.label === "価格" || metric.label === "発売日" ? "whitespace-pre-line leading-relaxed" : ""}`}>
-                {metric.value}
+                {metric.lines ? (
+                  <div className="space-y-0.5">
+                    {metric.lines.map((line) => (
+                      <div key={line.label} className="flex items-baseline gap-2">
+                        <span className="shrink-0 text-[10px] font-normal text-gray-500">{line.label}</span>
+                        {line.href ? (
+                          <a
+                            href={line.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-cyan-200 hover:underline"
+                          >
+                            {line.value}
+                          </a>
+                        ) : (
+                          <span>{line.value}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : metric.href ? (
+                  <a
+                    href={metric.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-cyan-200 hover:underline"
+                  >
+                    {metric.value}
+                  </a>
+                ) : metric.value}
               </dd>
             </div>
           ))}
@@ -727,6 +788,7 @@ export default function TopicDashboard({
   const [tableView, setTableView] = useState<TopicTableView>("standard");
   const [selectedActor, setSelectedActor] = useState("");
   const [checkedOnly, setCheckedOnly] = useState(false);
+  const [watchedOnly, setWatchedOnly] = useState(false);
 
   const domainStyle = DOMAIN_STYLES[domain];
   const DomainIcon = domainStyle.icon;
@@ -742,11 +804,15 @@ export default function TopicDashboard({
       ? "行きたい"
       : "観たい";
   const {
-    checkedItems,
     checkedCount: checkedItemCount,
     isChecked,
     toggle: toggleCheckedCard,
   } = useCheckedCards(checkedCardScope, checkedCardScope ? items : []);
+  const {
+    checkedCount: watchedItemCount,
+    isChecked: isWatched,
+    toggle: toggleWatchedCard,
+  } = useCheckedCards(domain === "movie" ? "movie-watched" : undefined, domain === "movie" ? items : []);
 
   useEffect(() => {
     if (domain !== "movie") return;
@@ -858,11 +924,11 @@ export default function TopicDashboard({
   );
   const movieGenresAvailable = useMemo(() => {
     const discovered = new Set(items.flatMap(movieGenresFor));
+    const known = MOVIE_GENRE_ORDER.filter((genre) => genre !== "その他" && discovered.has(genre));
     const additional = [...discovered].filter(
-      (genre) => !MOVIE_GENRE_ORDER.includes(genre as typeof MOVIE_GENRE_ORDER[number]),
+      (genre) => !MOVIE_GENRE_ORDER.includes(genre as typeof MOVIE_GENRE_ORDER[number]) && genre !== "その他",
     );
-    const knownWithoutOther = MOVIE_GENRE_ORDER.filter((genre) => genre !== "その他");
-    return [...knownWithoutOther, ...additional.filter((genre) => genre !== "その他"), "その他"];
+    return [...known, ...additional, ...(discovered.has("その他") ? ["その他"] : [])];
   }, [items]);
   const indieGenresAvailable = INDIE_GAME_GENRES;
   const indiePlatformsAvailable = INDIE_GAME_PLATFORMS;
@@ -888,9 +954,10 @@ export default function TopicDashboard({
   );
 
   const filtered = useMemo(() => {
-    if (checkedCardScope && checkedOnly) return checkedItems;
     const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
+      if (checkedCardScope && checkedOnly && !isChecked(item)) return false;
+      if (domain === "movie" && watchedOnly && !isWatched(item)) return false;
       if (domain === "redevelopment" && areaTab !== "all") {
         if (areaTab === "spotlight" ? item.spotlight !== true : item.area !== areaTab) return false;
       }
@@ -921,7 +988,11 @@ export default function TopicDashboard({
         item.region,
         item.summary,
         ...item.tags,
-        ...item.metrics.flatMap((metric) => [metric.label, metric.value]),
+        ...item.metrics.flatMap((metric) => [
+          metric.label,
+          metric.value,
+          ...(metric.lines ?? []).flatMap((line) => [line.label, line.value]),
+        ]),
         ...(domain === "movie" ? [movieTypeFor(item), ...movieGenresFor(item)] : []),
         ...(domain === "indie-game" ? [...indieGameGenresFor(item), ...indieGamePlatformsFor(item)] : []),
       ];
@@ -930,7 +1001,7 @@ export default function TopicDashboard({
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [areaTab, category, checkedCardScope, checkedItems, checkedOnly, domain, favoriteTheaterFilter, favoriteTheaterFilterState, favoriteTheaterMovieIdSet, indieGenre, indiePlatform, items, movieGenres, movieTypes, query, region, status]);
+  }, [areaTab, category, checkedCardScope, checkedOnly, domain, favoriteTheaterFilter, favoriteTheaterFilterState, favoriteTheaterMovieIdSet, indieGenre, indiePlatform, isChecked, isWatched, items, movieGenres, movieTypes, query, region, status, watchedOnly]);
 
   const visibleItems = domain === "movie"
     ? filtered.slice(0, visibleMovieCount)
@@ -969,6 +1040,7 @@ export default function TopicDashboard({
     indieGenre !== "all" ||
     indiePlatform !== "all" ||
     (checkedCardScope !== undefined && checkedOnly) ||
+    (domain === "movie" && watchedOnly) ||
     (domain === "redevelopment" && areaTab !== "all") ||
     region !== "all";
 
@@ -986,6 +1058,7 @@ export default function TopicDashboard({
     setIndieGenre("all");
     setIndiePlatform("all");
     setCheckedOnly(false);
+    setWatchedOnly(false);
   }
 
   function toggleMovieType(value: MovieType) {
@@ -1043,6 +1116,41 @@ export default function TopicDashboard({
       // Ignore unavailable browser storage.
     }
   }
+
+  const statusFilter = domain !== "indie-game" ? (
+    <div>
+      <div className="mb-1 text-[10px] font-semibold text-gray-500">
+        状態
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <button
+          type="button"
+          onClick={() => setStatus("all")}
+          className={`rounded-md border px-2 py-1 text-[11px] ${
+            status === "all"
+              ? "border-white/25 bg-white/10 text-white"
+              : "border-white/8 text-gray-500 hover:text-gray-300"
+          }`}
+        >
+          すべて
+        </button>
+        {statuses.map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setStatus(value)}
+            className={`rounded-md border px-2 py-1 text-[11px] ${
+              status === value
+                ? "border-white/25 bg-white/10 text-white"
+                : "border-white/8 text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-4">
@@ -1168,40 +1276,7 @@ export default function TopicDashboard({
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          {domain !== "indie-game" && (
-            <div>
-              <div className="mb-1 text-[10px] font-semibold text-gray-500">
-                状態
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => setStatus("all")}
-                  className={`rounded-md border px-2 py-1 text-[11px] ${
-                    status === "all"
-                      ? "border-white/25 bg-white/10 text-white"
-                      : "border-white/8 text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  すべて
-                </button>
-                {statuses.map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setStatus(value)}
-                    className={`rounded-md border px-2 py-1 text-[11px] ${
-                      status === value
-                        ? "border-white/25 bg-white/10 text-white"
-                        : "border-white/8 text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {domain !== "movie" && statusFilter}
 
           {domain === "movie" ? (
             <div className="space-y-2 md:col-span-2">
@@ -1280,7 +1355,7 @@ export default function TopicDashboard({
                   </p>
                 )}
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-3">
                 <div>
                   <div className="mb-1 text-[10px] font-semibold text-gray-500">
                     作品区分
@@ -1315,13 +1390,23 @@ export default function TopicDashboard({
                     ))}
                   </div>
                 </div>
-                <CheckedOnlyFilter
-                  label={checkedActionLabel}
-                  active={checkedOnly}
-                  count={checkedItemCount}
-                  onChange={setCheckedOnly}
-                  accent="fuchsia"
-                />
+                {statusFilter}
+                <div className="space-y-2">
+                  <CheckedOnlyFilter
+                    label={checkedActionLabel}
+                    active={checkedOnly}
+                    count={checkedItemCount}
+                    onChange={setCheckedOnly}
+                    accent="fuchsia"
+                  />
+                  <CheckedOnlyFilter
+                    label="観た"
+                    active={watchedOnly}
+                    count={watchedItemCount}
+                    onChange={setWatchedOnly}
+                    accent="fuchsia"
+                  />
+                </div>
               </div>
               <div>
                 <div className="mb-1 text-[10px] font-semibold text-gray-500">
@@ -1549,8 +1634,8 @@ export default function TopicDashboard({
                 <option value="standard">
                   {domain === "indie-game" && checkedOnly
                     ? "買いたい履歴"
-                    : domain === "movie" && checkedOnly
-                      ? "観たい履歴"
+                    : domain === "movie" && (checkedOnly || watchedOnly)
+                      ? checkedOnly && watchedOnly ? "観たい・観た履歴" : checkedOnly ? "観たい履歴" : "観た履歴"
                       : domain === "redevelopment" && checkedOnly
                         ? "行きたい履歴"
                       : standardTableLabels[domain]}
@@ -1594,8 +1679,8 @@ export default function TopicDashboard({
           <p className="text-sm">
             {domain === "indie-game" && checkedOnly
               ? "買いたい履歴はありません。"
-              : domain === "movie" && checkedOnly
-                ? "観たい履歴はありません。"
+              : domain === "movie" && (checkedOnly || watchedOnly)
+                ? checkedOnly && watchedOnly ? "観たい・観た履歴はありません。" : checkedOnly ? "観たい履歴はありません。" : "観た履歴はありません。"
                 : domain === "redevelopment" && checkedOnly
                   ? "行きたい履歴はありません。"
               : "条件に一致するボードがありません。"}
@@ -1620,6 +1705,8 @@ export default function TopicDashboard({
                   favoriteTheaters={favoriteTheaters}
                   checked={isChecked(item)}
                   onToggleCheck={() => toggleCheckedCard(item)}
+                  watched={isWatched(item)}
+                  onToggleWatched={() => toggleWatchedCard(item)}
                 />
               </div>
             ))}

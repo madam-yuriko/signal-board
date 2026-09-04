@@ -18,6 +18,7 @@ import StatCards, { type Stat } from "@/components/StatCards";
 import DataViewToolbar, {
   type DataViewMode,
 } from "@/components/DataViewToolbar";
+import { DATA_TABLE_PAGE_SIZE } from "@/components/DataTable";
 import BoxingDataTable, {
   availableFighterWeightClasses,
   availableFighters,
@@ -71,7 +72,6 @@ const TABLE_VIEW_OPTIONS: Array<{
 ];
 
 const WIKIPEDIA_CHUNK_DELAY_MS = 5_000;
-const FIGHTER_FIRST_PAGE_SIZE = 20;
 const WIKIPEDIA_RECORD_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000;
 type FighterWikipediaFilter = "all" | "has" | "none" | "unknown";
 type FighterWikipediaStatus = Exclude<FighterWikipediaFilter, "all">;
@@ -396,7 +396,6 @@ export default function BoxingDashboard({
         return {
           ...fighter,
           record: summarizeFighterRecord(merged.bouts, fighter.name),
-          boutCount: merged.bouts.length,
         };
       }),
     [allBouts, filteredFighters, fighterRecordsById],
@@ -474,7 +473,7 @@ export default function BoxingDashboard({
         ? wikipediaLookupRequest.fighters
         : defaultLookupFighters;
     const names = lookupFighters
-      .slice(0, FIGHTER_FIRST_PAGE_SIZE)
+      .slice(0, DATA_TABLE_PAGE_SIZE)
       .filter(
         (fighter) =>
           (fighterWikipediaUrlsRef.current[fighter.id] === undefined ||

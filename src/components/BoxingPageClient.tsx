@@ -7,17 +7,32 @@ import type { FighterProfile } from "@/lib/fighterProfile";
 import type { WikipediaFighterRecord } from "@/lib/fighterRecord";
 
 const CLIENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-// 取得ロジックを変えた時はキーを上げる。上げないと、既存の利用者は
-// 最大24時間、古い（カードが欠けた）フィードを見続けることになる。
-const CLIENT_CACHE_KEY = "signal-board:boxing-feed:v7";
+const CLIENT_CACHE_KEY = "signal-board:boxing-event-feed:v1";
+const LEGACY_CLIENT_CACHE_KEYS = [
+  "signal-board:boxing-feed:v7",
+  "signal-board:boxing-feed:v6",
+];
 
 interface CachedFeed {
   feed: BoxingFeed;
   expiresAt: number;
 }
 
+interface FighterData {
+  profiles: FighterProfile[];
+  records: Record<string, WikipediaFighterRecord>;
+}
+
 let cachedFeed: CachedFeed | undefined;
 let inFlight: Promise<BoxingFeed> | undefined;
+let fighterDataInFlight: Promise<FighterData> | undefined;
+
+function eventFeedOnly(feed: BoxingFeed): BoxingFeed {
+  const eventFeed = { ...feed };
+  delete eventFeed.fighterProfiles;
+  delete eventFeed.fighterRecords;
+  return eventFeed;
+}
 
 function cacheExpiry(feed: BoxingFeed): number {
   const fetchedAt = feed.fetchedAt ? Date.parse(feed.fetchedAt) : Number.NaN;
@@ -36,24 +51,35 @@ function cachedValue(): BoxingFeed | undefined {
 
 function persistedValue(): BoxingFeed | undefined {
   try {
-    const serialized = window.localStorage.getItem(CLIENT_CACHE_KEY);
-    if (!serialized) return undefined;
+    for (const key of [CLIENT_CACHE_KEY, ...LEGACY_CLIENT_CACHE_KEYS]) {
+      const serialized = window.localStorage.getItem(key);
+      if (!serialized) continue;
 
-    const parsed = JSON.parse(serialized) as Partial<CachedFeed>;
-    const valid =
-      typeof parsed.expiresAt === "number" &&
-      parsed.expiresAt > Date.now() &&
-      typeof parsed.feed === "object" &&
-      parsed.feed !== null &&
-      Array.isArray(parsed.feed.events);
+      const parsed = JSON.parse(serialized) as Partial<CachedFeed>;
+      if (
+        typeof parsed.expiresAt !== "number" ||
+        parsed.expiresAt <= Date.now() ||
+        typeof parsed.feed !== "object" ||
+        parsed.feed === null ||
+        !Array.isArray(parsed.feed.events)
+      ) {
+        continue;
+      }
 
-    if (!valid) {
-      window.localStorage.removeItem(CLIENT_CACHE_KEY);
-      return undefined;
+      const nextCachedFeed: CachedFeed = {
+        feed: eventFeedOnly(parsed.feed as BoxingFeed),
+        expiresAt: parsed.expiresAt,
+      };
+      cachedFeed = nextCachedFeed;
+      if (key !== CLIENT_CACHE_KEY) {
+        window.localStorage.setItem(
+          CLIENT_CACHE_KEY,
+          JSON.stringify(nextCachedFeed),
+        );
+      }
+      return nextCachedFeed.feed;
     }
-
-    cachedFeed = parsed as CachedFeed;
-    return cachedFeed.feed;
+    return undefined;
   } catch {
     return undefined;
   }
@@ -61,7 +87,7 @@ function persistedValue(): BoxingFeed | undefined {
 
 function storeFeed(feed: BoxingFeed): void {
   const next: CachedFeed = {
-    feed,
+    feed: eventFeedOnly(feed),
     expiresAt: cacheExpiry(feed),
   };
   cachedFeed = next;
@@ -104,6 +130,29 @@ async function requestFeed(): Promise<BoxingFeed> {
   }
 }
 
+async function requestFighterData(): Promise<FighterData> {
+  if (fighterDataInFlight) return fighterDataInFlight;
+
+  fighterDataInFlight = (async () => {
+    const response = await fetch("/api/boxing/fighters");
+    const body = (await response.json()) as FighterData | { error?: string };
+    if (!response.ok) {
+      throw new Error(
+        "error" in body && body.error
+          ? body.error
+          : "保存済みの選手データを取得できませんでした。",
+      );
+    }
+    return body as FighterData;
+  })();
+
+  try {
+    return await fighterDataInFlight;
+  } finally {
+    fighterDataInFlight = undefined;
+  }
+}
+
 function LoadingState() {
   return (
     <main className="mx-auto min-h-screen w-full max-w-none px-4 py-8 sm:px-6 lg:px-8">
@@ -115,9 +164,8 @@ function LoadingState() {
 }
 
 export default function BoxingPageClient() {
-  const initialFeed = cachedValue();
-  const [feed, setFeed] = useState<BoxingFeed | undefined>(initialFeed);
-  const [loading, setLoading] = useState(!initialFeed);
+  const [feed, setFeed] = useState<BoxingFeed>();
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const handleFighterDataChange = useCallback(
     (
@@ -144,7 +192,6 @@ export default function BoxingPageClient() {
             ...records,
           },
         };
-        storeFeed(next);
         return next;
       });
     },
@@ -157,11 +204,26 @@ export default function BoxingPageClient() {
     const load = async () => {
       const current = cachedValue() ?? persistedValue();
       if (current) {
-        await Promise.resolve();
-        if (cancelled) return;
-        setFeed(current);
-        setLoading(false);
-        setError(undefined);
+        try {
+          const fighterData = await requestFighterData();
+          if (cancelled) return;
+          setFeed({
+            ...current,
+            fighterProfiles: fighterData.profiles,
+            fighterRecords: fighterData.records,
+          });
+          setLoading(false);
+          setError(undefined);
+        } catch (loadError) {
+          if (cancelled) return;
+          setFeed(current);
+          setLoading(false);
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "保存済みの選手データを取得できませんでした。",
+          );
+        }
         return;
       }
 
